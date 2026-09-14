@@ -17,10 +17,10 @@ SideForgeEditor::SideForgeEditor (SideForgeProcessor& p)
 
     // Free resizing, but never smaller than the point at which the panels stop
     // being legible.
-    if (auto* constrainer = getConstrainer())
+    if (auto* limits = getConstrainer())
     {
-        constrainer->setSizeLimits (kMinWidth, kMinHeight, 3840, 2400);
-        constrainer->setFixedAspectRatio (0.0);
+        limits->setSizeLimits (kMinWidth, kMinHeight, 3840, 2400);
+        limits->setFixedAspectRatio (0.0);
     }
 
     auto& editorState = proc.getEditorState();

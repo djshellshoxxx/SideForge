@@ -52,6 +52,10 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
+    /** Right-clicking anywhere on the control - the arc, the name, the value
+        readout or the padding between them - opens the same menu. */
+    void mouseDown (const juce::MouseEvent&) override;
+
     /** Grey the control out when the active engine does not use it. */
     void setRelevant (bool isRelevant);
 
@@ -63,6 +67,7 @@ public:
 private:
     void openTextEntry();
     void commitTextEntry();
+    void showMenu();
 
     ControlContext context;
     juce::String parameterID;
@@ -87,6 +92,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
     void setRelevant (bool isRelevant);
     void refreshBadge();
 
@@ -128,6 +134,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
     void setRelevant (bool isRelevant);
     void refreshBadge();
 

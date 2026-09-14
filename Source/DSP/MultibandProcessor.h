@@ -85,6 +85,11 @@ private:
     CrossoverAllpass<kMaxCh> lowAllpass;      // keeps band 1 aligned with 2 + 3
     TwoWayCrossover<kMaxCh>  monoLowCrossover;
 
+    // Depth and channel link scale the applied gain directly, so they are ramped
+    // across the block rather than stepped when they are automated.
+    float currentDepth[kNumBands] { 1.0f, 1.0f, 1.0f };
+    float currentLink = 1.0f;
+
     // Per-band, per-channel ballistic state on the applied gain.
     float bandGainState[kNumBands][kMaxCh] {};
     float attackCoeff[kNumBands] {};

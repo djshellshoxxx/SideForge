@@ -9,11 +9,11 @@ namespace
 {
 constexpr int kHeaderHeight     = 50;
 constexpr int kMacroWidth       = 196;
-constexpr int kMeterWidth       = 118;
+constexpr int kMeterWidth       = 132;
 constexpr int kDisplayTabHeight = 26;
 constexpr int kPanelTabHeight   = 28;
 constexpr int kFooterHeight     = 22;
-constexpr int kPanelHeight      = 186;
+constexpr int kPanelHeight      = 212;   // two rows of controls without scrolling
 
 const char* const kDisplayPageNames[] = { "Waveform", "Curve", "Spectrum" };
 constexpr int kNumDisplayPages = 3;
@@ -43,21 +43,8 @@ MainView::MainView (SideForgeProcessor& processorToUse, juce::AudioProcessorEdit
     buildHeader();
 
     // -- macros ---------------------------------------------------------------
-    macroDepth      = std::make_unique<SFKnob> (context, pid::macroDepth, "Depth",
-                                                "Scales how much gain reduction every active engine asks for.");
-    macroSeparation = std::make_unique<SFKnob> (context, pid::macroSeparation, "Separation",
-                                                "Trades broadband ducking for spectral ducking and sharpens the collision map.");
-    macroTiming     = std::make_unique<SFKnob> (context, pid::macroTiming, "Timing",
-                                                "Scales every attack and release time together.");
-    macroCharacter  = std::make_unique<SFKnob> (context, pid::macroCharacter, "Character",
-                                                "Soft and transparent at the left, tight and aggressive at the right.");
-    macrosEnabled   = std::make_unique<SFToggle> (context, pid::macrosEnabled, "Macros Active",
-                                                  "Turn this off to hear the panel parameters exactly as they are set.");
-
-    for (auto* knob : { macroDepth.get(), macroSeparation.get(), macroTiming.get(), macroCharacter.get() })
-        addAndMakeVisible (*knob);
-
-    addAndMakeVisible (*macrosEnabled);
+    macros = std::make_unique<MacroControls> (context);
+    addAndMakeVisible (*macros);
 
     // -- display --------------------------------------------------------------
     visualizer.setSource (&processor.getAnalysisBus());
@@ -387,11 +374,7 @@ void MainView::timerCallback()
         for (auto& panel : panels)
             panel->refreshBadges();
 
-        macroDepth->refreshBadge();
-        macroSeparation->refreshBadge();
-        macroTiming->refreshBadge();
-        macroCharacter->refreshBadge();
-        macrosEnabled->refreshBadge();
+        macros->refreshBadges();
         bypassToggle->refreshBadge();
 
         undoButton.setEnabled (curveEditor.canUndo());
@@ -416,10 +399,7 @@ void MainView::refreshRelevance()
                                     "Hybrid mode needs Studio quality or higher. "
                                     "Click to switch and select it.");
 
-    const auto macrosOn = readBool (processor.getParams().macrosEnabled);
-
-    for (auto* knob : { macroDepth.get(), macroSeparation.get(), macroTiming.get(), macroCharacter.get() })
-        knob->setRelevant (macrosOn);
+    macros->setMacrosActive (readBool (processor.getParams().macrosEnabled));
 
     visualizer.setEnabled (settings.vizEnabled);
     visualizer.setReducedAnimation (settings.vizReduced);
@@ -541,21 +521,7 @@ void MainView::layoutDisplay (juce::Rectangle<int> area)
 {
     // Macros on the left.
     macroArea = area.removeFromLeft (kMacroWidth);
-    auto macros = macroArea.reduced (theme::gapSmall);
-    macros.removeFromTop (14);   // heading drawn in paint()
-
-    const auto toggleRow = macros.removeFromBottom (24);
-    macrosEnabled->setBounds (toggleRow.withSizeKeepingCentre (juce::jmin (150, toggleRow.getWidth()), 22));
-
-    const auto knobHeight = macros.getHeight() / 2;
-    auto topRow = macros.removeFromTop (knobHeight);
-    auto bottomRow = macros;
-
-    const auto knobWidth = topRow.getWidth() / 2;
-    macroDepth->setBounds (topRow.removeFromLeft (knobWidth).reduced (2));
-    macroSeparation->setBounds (topRow.reduced (2));
-    macroTiming->setBounds (bottomRow.removeFromLeft (knobWidth).reduced (2));
-    macroCharacter->setBounds (bottomRow.reduced (2));
+    macros->setBounds (macroArea);
 
     area.removeFromLeft (theme::gap);
 
@@ -712,12 +678,6 @@ void MainView::paint (juce::Graphics& g)
         g.drawText ("SIDECHAIN PROCESSOR", title, juce::Justification::topLeft, false);
     }
 
-    // -- macro heading --------------------------------------------------------
-    {
-        auto heading = macroArea.reduced (theme::gapSmall).removeFromTop (14);
-        SideForgeLookAndFeel::drawSectionHeading (g, heading, "Macros", theme::accent);
-    }
-
     // -- display tabs ---------------------------------------------------------
     for (int i = 0; i < kNumDisplayPages; ++i)
     {
@@ -779,14 +739,19 @@ void MainView::paint (juce::Graphics& g)
                             || readEnum<ScSource> (processor.getParams().scSource) == ScSource::Internal;
         const auto active = processor.isSidechainReceivingAudio();
 
-        auto indicator = footer.reduced (theme::gap, 0).removeFromLeft (10);
+        footer = footer.reduced (theme::gap, 0);
+
+        const auto indicator = footer.removeFromLeft (12);
         g.setColour (! connected ? theme::danger : (active ? theme::ok : theme::warning));
         g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre (indicator.getCentre().toFloat()));
 
         g.setColour (theme::textDim);
         g.setFont (theme::valueFont (10.5f));
-        g.drawText (statusLeft, footer.reduced (6, 0), juce::Justification::centredLeft, true);
-        g.drawText (statusRight, footer.reduced (6, 0), juce::Justification::centredRight, true);
+
+        // Split the strip so the two readouts can never overlap each other.
+        auto right = footer.removeFromRight (juce::jmin (footer.getWidth() / 2, 260));
+        g.drawText (statusRight, right, juce::Justification::centredRight, true);
+        g.drawText (statusLeft, footer.withTrimmedLeft (4), juce::Justification::centredLeft, true);
     }
 }
 } // namespace sf

@@ -8,6 +8,7 @@ Visualizer::Visualizer()
     history.assign ((size_t) kHistorySize, WaveformPoint {});
     setInterceptsMouseClicks (true, false);
     setTooltip ("Click to freeze or unfreeze the display. Double-click to reset the view.\n"
+                "Right-click for the history length and which layers are drawn.\n"
                 "Cyan: destination.  Orange: sidechain.  Violet: gain reduction.  Green: output.");
 }
 
@@ -80,8 +81,57 @@ const WaveformPoint& Visualizer::columnAt (int index) const
 
 void Visualizer::mouseDown (const juce::MouseEvent& e)
 {
-    if (! e.mods.isPopupMenu())
+    if (e.mods.isPopupMenu())
+        showContextMenu();
+    else
         setFrozen (! frozen);
+}
+
+void Visualizer::showContextMenu()
+{
+    enum { idNone = 0, idFreeze = 1, idSidechain, idOutput, idWindowBase = 100 };
+
+    const double windows[] = { 0.5, 1.0, 2.0, 4.0, 8.0 };
+
+    juce::PopupMenu menu;
+    menu.setLookAndFeel (&getLookAndFeel());
+
+    menu.addSectionHeader ("Display");
+    menu.addItem (idFreeze, "Freeze", true, frozen);
+
+    juce::PopupMenu window;
+
+    for (int i = 0; i < (int) (sizeof (windows) / sizeof (double)); ++i)
+        window.addItem (idWindowBase + i,
+                        juce::String (windows[i], windows[i] < 1.0 ? 1 : 0) + " s",
+                        true, std::abs (windowSeconds - windows[i]) < 0.01);
+
+    menu.addSubMenu ("History shown", window);
+
+    menu.addSeparator();
+    menu.addItem (idSidechain, "Show sidechain", true, showSidechain);
+    menu.addItem (idOutput, "Show output", true, showOutput);
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(),
+                        [this, windows] (int result)
+    {
+        if (result == idNone)
+            return;
+
+        if (result >= idWindowBase)
+        {
+            setTimeWindowSeconds (windows[result - idWindowBase]);
+            return;
+        }
+
+        switch (result)
+        {
+            case idFreeze:    setFrozen (! frozen); break;
+            case idSidechain: setShowSidechain (! showSidechain); break;
+            case idOutput:    setShowOutput (! showOutput); break;
+            default: break;
+        }
+    });
 }
 
 void Visualizer::mouseDoubleClick (const juce::MouseEvent&)
@@ -194,12 +244,13 @@ void Visualizer::drawSidechain (juce::Graphics& g, juce::Rectangle<float> area,
     if (count <= 0 || area.getWidth() < 2.0f)
         return;
 
-    const auto centre = area.getCentreY();
-    const auto halfHeight = area.getHeight() * 0.46f;
+    // A rectified silhouette hanging from the top of its lane.
+    const auto baseline = area.getY();
+    const auto height = area.getHeight() * 0.92f;
     const auto pixels = juce::jmax (1, (int) area.getWidth());
 
     juce::Path path;
-    path.preallocateSpace (pixels * 6 + 8);
+    path.preallocateSpace (pixels * 3 + 8);
 
     for (int x = 0; x < pixels; ++x)
     {
@@ -215,11 +266,11 @@ void Visualizer::drawSidechain (juce::Graphics& g, juce::Rectangle<float> area,
         }
 
         const auto px = area.getX() + (float) x;
-        const auto py = centre - juce::jlimit (0.0f, 1.0f, highest) * halfHeight;
+        const auto py = baseline + juce::jlimit (0.0f, 1.0f, highest) * height;
 
         if (x == 0)
         {
-            path.startNewSubPath (px, centre);
+            path.startNewSubPath (px, baseline);
             path.lineTo (px, py);
         }
         else
@@ -228,18 +279,17 @@ void Visualizer::drawSidechain (juce::Graphics& g, juce::Rectangle<float> area,
         }
     }
 
-    path.lineTo (area.getRight(), centre);
+    path.lineTo (area.getRight(), baseline);
     path.closeSubPath();
 
-    // Orange through magenta: the sidechain reads as a separate voice from the
-    // destination even where the two overlap.
-    juce::ColourGradient gradient (theme::sidechain.withAlpha (0.45f), area.getX(), centre,
-                                   theme::sidechainDeep.withAlpha (0.10f), area.getX(), area.getY(),
-                                   false);
+    // Orange through magenta, so the sidechain reads as a separate voice.
+    juce::ColourGradient gradient (theme::sidechain.withAlpha (0.55f), area.getX(), baseline,
+                                   theme::sidechainDeep.withAlpha (0.15f),
+                                   area.getX(), area.getBottom(), false);
     g.setGradientFill (gradient);
     g.fillPath (path);
 
-    g.setColour (theme::sidechain.withAlpha (0.9f));
+    g.setColour (theme::sidechain.withAlpha (0.95f));
     g.strokePath (path, juce::PathStrokeType (1.2f));
 }
 
@@ -373,6 +423,16 @@ void Visualizer::paint (juce::Graphics& g)
         return;
     }
 
+    // The sidechain gets its own lane along the top. Drawn into the same space as
+    // the destination it would simply sit behind it, and the whole point of
+    // showing it is to see how it lines up against what it is ducking.
+    const auto fullArea = area;
+    auto sidechainLane = showSidechain ? area.removeFromTop (area.getHeight() * 0.26f)
+                                       : juce::Rectangle<float>();
+
+    if (showSidechain)
+        area.removeFromTop (3.0f);
+
     drawGrid (g, area);
 
     // How many columns fit the requested time window.
@@ -383,7 +443,18 @@ void Visualizer::paint (juce::Graphics& g)
     if (filled > 0)
     {
         if (showSidechain)
-            drawSidechain (g, area, first, count);
+        {
+            g.setColour (theme::outline.withAlpha (0.35f));
+            g.fillRect (juce::Rectangle<float> (sidechainLane.getX(), sidechainLane.getBottom(),
+                                                sidechainLane.getWidth(), 1.0f));
+
+            drawSidechain (g, sidechainLane, first, count);
+
+            g.setColour (theme::sidechain.withAlpha (0.65f));
+            g.setFont (theme::labelFont (8.5f));
+            g.drawText ("SIDECHAIN", sidechainLane.reduced (4.0f, 2.0f),
+                        juce::Justification::topLeft, false);
+        }
 
         drawWaveform (g, area, first, count, false);
 
@@ -391,13 +462,13 @@ void Visualizer::paint (juce::Graphics& g)
             drawWaveform (g, area, first, count, true);
 
         drawReductionEnvelope (g, area, first, count);
-        drawTriggerMarkers (g, area, first, count);
+        drawTriggerMarkers (g, fullArea, first, count);
     }
     else
     {
         g.setColour (theme::textFaint);
         g.setFont (theme::valueFont (12.0f));
-        g.drawText ("Waiting for audio", area, juce::Justification::centred, false);
+        g.drawText ("Waiting for audio", fullArea, juce::Justification::centred, false);
     }
 
     drawLegend (g, legendArea);

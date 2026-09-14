@@ -10,7 +10,17 @@ namespace
 /** Sidechain bins quieter than this, relative to the loudest bin of the frame,
     are treated as absent — so a near-silent sidechain never carves anything. */
 constexpr float kRelativeFloor = 0.002f;     // ~ -54 dB below the frame peak
-constexpr float kAbsoluteFloor = 1.0e-6f;
+
+/** The absolute floor, per unit of FFT size.
+
+    These magnitudes are unnormalised, so a full-scale tone lands near
+    `fftSize / 4`; this puts the floor around -90 dBFS. It has to scale with the
+    transform: a fixed tiny constant sits below the transform's own numerical
+    noise, and then two bins of pure rounding error compare as "the sidechain
+    owns this band", which quietly ducks the top end whenever the sidechain is
+    between hits. */
+constexpr float kAbsoluteFloorPerBin = 1.0e-5f;
+
 constexpr float kMagEpsilon    = 1.0e-12f;
 
 /** Blends the sustained and instantaneous views of a sidechain bin. */
@@ -251,7 +261,8 @@ void SpectralDucker::processFrame (int numChannels) noexcept
                                                + scSlowCoeff * (scMagSlow[(size_t) k] - scMag[(size_t) k]));
     }
 
-    const auto floorLevel = juce::jmax (kAbsoluteFloor, scPeak * kRelativeFloor);
+    const auto floorLevel = juce::jmax ((float) fftSize * kAbsoluteFloorPerBin,
+                                        scPeak * kRelativeFloor);
     const auto floorSq = floorLevel * floorLevel;
     const auto preserveExponent = 1.0f + 3.0f * settings.preserveBody;
     const auto depth = settings.depthDb * settings.amount;
@@ -326,16 +337,20 @@ void SpectralDucker::processFrame (int numChannels) noexcept
         {
             // Artifact guard: pull every bin toward its neighbourhood, which is what
             // stops isolated deep notches from turning into musical noise.
-            // `collision` is reused as scratch here; it has already done its job.
-            std::copy (gains.begin(), gains.begin() + numBins, collision.begin());
-            boxSmooth (collision.data(), numBins, 2 + (int) std::lround (settings.guard * 6.0));
+            //
+            // This needs its own scratch. It used to borrow `collision`, which was
+            // finished with as far as the audio was concerned - but the snapshot
+            // published to the visualiser is taken afterwards, so the display was
+            // being handed gain values labelled as a collision map.
+            std::copy (gains.begin(), gains.begin() + numBins, guardScratch.begin());
+            boxSmooth (guardScratch.data(), numBins, 2 + (int) std::lround (settings.guard * 6.0));
 
             const auto pull = settings.guard * 0.6f;
 
             for (int k = 0; k < numBins; ++k)
                 gains[(size_t) k] = juce::jlimit (minGain, 1.0f,
                                                   gains[(size_t) k]
-                                                      + (collision[(size_t) k] - gains[(size_t) k]) * pull);
+                                                      + (guardScratch[(size_t) k] - gains[(size_t) k]) * pull);
         }
 
         // --- apply, keeping the spectrum conjugate-symmetric -------------------

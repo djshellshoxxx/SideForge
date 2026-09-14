@@ -1,6 +1,7 @@
 #pragma once
 #include "Controls.h"
 #include "CurveEditor.h"
+#include "MacroControls.h"
 #include "MeterComponent.h"
 #include "Panels.h"
 #include "SpectrumView.h"
@@ -41,6 +42,16 @@ public:
 
     void setDisplayPage (DisplayPage page);
 
+    /** Selects a lower panel by index. Public so the screenshot mode in the test
+        runner can walk every page without simulating clicks on the tab strip. */
+    void setActivePanelForScreenshot (int index) { setActivePanel (index); }
+
+    int getNumPanels() const noexcept { return (int) panels.size(); }
+
+    /** Runs one refresh tick immediately instead of waiting for the timer.
+        Used by the screenshot mode, where no message loop is running. */
+    void refreshNow() { timerCallback(); }
+
 private:
     void timerCallback() override;
 
@@ -75,8 +86,7 @@ private:
     juce::TextButton slotAButton { "A" }, slotBButton { "B" }, copySlotButton { "A > B" };
 
     // -- macros ---------------------------------------------------------------
-    std::unique_ptr<SFKnob> macroDepth, macroSeparation, macroTiming, macroCharacter;
-    std::unique_ptr<SFToggle> macrosEnabled;
+    std::unique_ptr<MacroControls> macros;
 
     // -- display --------------------------------------------------------------
     Visualizer visualizer;

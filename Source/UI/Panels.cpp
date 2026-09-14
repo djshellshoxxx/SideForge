@@ -103,6 +103,17 @@ int PanelBase::layout (int width, bool apply)
         for (auto& group : groups)
             group.labelBounds = {};
 
+    // Total width of the group starting at `index`, so a group can be kept whole.
+    auto groupWidthFrom = [this] (size_t index)
+    {
+        auto total = 0;
+
+        for (auto scan = index; scan < items.size() && items[scan].group == items[index].group; ++scan)
+            total += items[scan].width + theme::gapSmall;
+
+        return total;
+    };
+
     for (size_t index = 0; index < items.size(); ++index)
     {
         const auto& item = items[index];
@@ -110,8 +121,21 @@ int PanelBase::layout (int width, bool apply)
         const auto needsLabel = startsGroup && groups[(size_t) item.group].name.isNotEmpty();
         const auto extra = startsGroup && currentGroup >= 0 ? kGroupGap : 0;
 
+        // A group that would be split across the row break but fits on a row of
+        // its own is moved down whole: a heading with two of its four knobs under
+        // it and the rest on the next line reads as two different groups.
+        auto advance = item.width;
+
+        if (startsGroup)
+        {
+            const auto whole = groupWidthFrom (index);
+
+            if (whole <= usable)
+                advance = whole;
+        }
+
         // Wrap when the item (plus the gap before it) would overflow the row.
-        if (x + extra + item.width > usable + theme::gap && x > theme::gap)
+        if (x + extra + advance > usable + theme::gap && x > theme::gap)
         {
             x = theme::gap;
             y += rowHeight + kRowGap;
@@ -130,13 +154,8 @@ int PanelBase::layout (int width, bool apply)
             {
                 // The heading's rule runs only as far as the group's own controls,
                 // so two groups sharing a row do not draw over each other.
-                auto groupWidth = 0;
-
-                for (auto scan = index; scan < items.size() && items[scan].group == item.group; ++scan)
-                    groupWidth += items[scan].width + theme::gapSmall;
-
                 groups[(size_t) item.group].labelBounds =
-                    { x, y, juce::jlimit (60, juce::jmax (60, usable - x), groupWidth), 11 };
+                    { x, y, juce::jlimit (60, juce::jmax (60, usable - x), groupWidthFrom (index)), 11 };
             }
         }
 

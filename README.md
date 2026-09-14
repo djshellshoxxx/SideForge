@@ -10,7 +10,10 @@ multiplier, so blending them is multiplication rather than a special case, the
 band stage is the only thing that touches the audio, and each engine can be
 tested on its own.
 
-![SideForge](Resources/icon_256.png)
+![SideForge](Resources/screenshots/waveform.png)
+
+Compress mode: the sidechain in its own lane at the top, the gain-reduction
+envelope over the destination and the output, and a tick at every trigger.
 
 ---
 
@@ -148,6 +151,16 @@ cmake --build build --config Release --target SideForgeTests
 `--filter=name` runs a subset; several comma-separated patterns are allowed, for
 example `--filter=spectral_,curveEngine_`.
 
+The same runner can render the interface to PNG, which is how the screenshots
+above were made and how three of the bugs listed in `PROGRESS.md` were found:
+
+```powershell
+.\build\SideForgeTests_artefacts\Release\SideForgeTests.exe --screenshots=shots
+```
+
+The VST3 bundle itself is checked separately, by a small host — see
+[Troubleshooting → Validation](#troubleshooting).
+
 ---
 
 ## Installing
@@ -228,6 +241,19 @@ The central display has three pages:
 - **Spectrum** — both spectra, the collision map in yellow through red, and the
   attenuation the spectral stage is applying. Hover for exact values. **Delta**
   overlays the spectrum of what is being removed.
+
+![Spectrum](Resources/screenshots/spectrum.png)
+
+Hybrid mode. The wash marks where the kick and the chord genuinely compete, and
+the violet line is what the spectral stage is taking out as a result.
+
+![Curve](Resources/screenshots/curve.png)
+
+![Bands](Resources/screenshots/bands.png)
+
+The Bands panel at the minimum window size. Controls the active setup does not
+use — the crossovers in one-band mode, bands 2 and 3, the channel link in Stereo
+— are greyed rather than hidden, so nothing moves around under the cursor.
 
 Controls that the active engine does not use are greyed rather than hidden, so
 the layout never jumps around and you can still see what a mode ignores.
@@ -333,8 +359,18 @@ cycle is a fixed rate and is not tempo-locked by design.
 for mixing. **Output → Visualiser → Reduced** halves the repaint rate, and
 turning the visualiser off entirely leaves processing untouched.
 
-**Validation.** pluginval is not installed on the machine this was built on, so
-it has not been run. If you have [pluginval](https://github.com/Tracktion/pluginval):
+**Validation.** The project ships its own VST3 host check, which loads the built
+bundle through JUCE's VST3 hosting code — the same path a DAW takes — and
+verifies scanning, instantiation, bus layouts, processing at several sample rates,
+latency reporting, state round trips and the editor:
+
+```powershell
+cmake --build build --config Release --target SideForgeValidate
+.\build\SideForgeValidate_artefacts\Release\SideForgeValidate.exe
+```
+
+pluginval is not installed on the machine this was built on, so it has not been
+run. If you have [pluginval](https://github.com/Tracktion/pluginval):
 
 ```powershell
 pluginval.exe --validate-in-process --strictness-level 8 `

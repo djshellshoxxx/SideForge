@@ -400,3 +400,172 @@ SF_TEST (spectral_configChangeIsSafeMidStream)
                       "latency must follow the applied configuration");
     }
 }
+
+SF_TEST (spectral_publishedCollisionMapDescribesTheActualCollision)
+{
+    constexpr double sr = 48000.0;
+    constexpr int blockSize = 512;
+    constexpr int fftOrder = 11;
+
+    sf::SpectralDucker ducker;
+    ducker.prepare (sr, blockSize, 1);
+
+    sf::SpectralDucker::Settings s;
+    s.depthDb = 24.0f;
+    s.lowFreqHz = 20.0f;
+    s.highFreqHz = 20000.0f;
+    s.freqSmooth = 0.1f;
+    s.timeSmooth = 0.0f;
+    s.preserveBody = 0.0f;
+    s.tonal = 1.0f;
+    s.guard = 0.6f;          // on, because this is what used to corrupt the map
+    ducker.setSettings (s);
+    ducker.setConfig (fftOrder, 4);
+
+    juce::AudioBuffer<float> audio { 1, blockSize }, sidechain { 1, blockSize };
+
+    // The destination holds 400 Hz and 4 kHz; the sidechain only occupies 400 Hz.
+    double mainLowPhase = 0.0, mainHighPhase = 0.0, sidePhase = 0.0;
+    const auto mainLowInc  = 2.0 * kPi * 400.0 / sr;
+    const auto mainHighInc = 2.0 * kPi * 4000.0 / sr;
+    const auto sideInc     = 2.0 * kPi * 400.0 / sr;
+
+    for (int b = 0; b < 160; ++b)
+    {
+        for (int i = 0; i < blockSize; ++i)
+        {
+            audio.getWritePointer (0)[i] = 0.35f * (float) (std::sin (mainLowPhase)
+                                                            + std::sin (mainHighPhase));
+            sidechain.getWritePointer (0)[i] = 0.7f * (float) std::sin (sidePhase);
+
+            mainLowPhase += mainLowInc;
+            mainHighPhase += mainHighInc;
+            sidePhase += sideInc;
+        }
+
+        ducker.process (audio, sidechain, 1, blockSize);
+    }
+
+    const auto& snapshot = ducker.readSnapshot();
+    SF_CHECK_MSG (snapshot.numBins > 1, "the ducker should have published a snapshot");
+
+    const auto binHz = snapshot.sampleRate / (float) snapshot.fftSize;
+    auto binFor = [&] (float hz) { return juce::jlimit (0, snapshot.numBins - 1,
+                                                        (int) std::round (hz / binHz)); };
+
+    auto peakNear = [&] (const std::array<float, sf::kMaxBins>& values, float hz, int radius)
+    {
+        const auto centre = binFor (hz);
+        auto highest = values[(size_t) centre];
+
+        for (int k = juce::jmax (0, centre - radius);
+             k <= juce::jmin (snapshot.numBins - 1, centre + radius); ++k)
+            highest = juce::jmax (highest, values[(size_t) k]);
+
+        return highest;
+    };
+
+    const auto collisionAt400  = peakNear (snapshot.collision, 400.0f, 3);
+    const auto collisionAt4000 = peakNear (snapshot.collision, 4000.0f, 3);
+
+    for (int k = 0; k < snapshot.numBins; ++k)
+    {
+        SF_CHECK_FINITE (snapshot.collision[(size_t) k]);
+        SF_CHECK (snapshot.collision[(size_t) k] >= 0.0f && snapshot.collision[(size_t) k] <= 1.0f);
+    }
+
+    // The whole point of a collision map: high where the two sources compete,
+    // low where only the destination is playing.
+    SF_CHECK_MSG (collisionAt400 > 0.3f,
+                  ("the shared 400 Hz region should read as a collision, got "
+                   + num (collisionAt400)).c_str());
+    SF_CHECK_MSG (collisionAt4000 < collisionAt400 * 0.5f,
+                  ("4 kHz has no sidechain content and should not read as a collision: "
+                   + num (collisionAt4000) + " against " + num (collisionAt400)).c_str());
+
+    // ...and the published attenuation should follow it.
+    const auto gainAt400  = peakNear (snapshot.gainDb, 400.0f, 3);
+    const auto gainAt4000 = peakNear (snapshot.gainDb, 4000.0f, 3);
+
+    SF_CHECK_MSG (gainAt400 < -1.0f,
+                  ("the colliding region should be attenuated, got " + num (gainAt400) + " dB").c_str());
+    SF_CHECK_MSG (gainAt4000 > gainAt400,
+                  "the non-colliding region should be attenuated less than the colliding one");
+
+    // The sidechain spectrum should show the tone that is actually there.
+    SF_CHECK_MSG (peakNear (snapshot.sideDb, 400.0f, 3) > peakNear (snapshot.sideDb, 4000.0f, 3) + 12.0f,
+                  "the published sidechain spectrum should peak where the sidechain actually is");
+}
+
+SF_TEST (spectral_quietSidechainDoesNotDuckTheEmptyPartsOfTheSpectrum)
+{
+    constexpr double sr = 48000.0;
+    constexpr int blockSize = 512;
+
+    // The case that matters in a real mix: the sidechain is a kick with silence
+    // between the hits, and the destination has nothing much above a few hundred
+    // hertz. Comparing two bins of numerical noise must not read as a collision,
+    // or the top end gets ducked between every kick.
+    sf::SpectralDucker ducker;
+    ducker.prepare (sr, blockSize, 1);
+
+    sf::SpectralDucker::Settings s;
+    s.depthDb = 30.0f;
+    s.lowFreqHz = 20.0f;
+    s.highFreqHz = 20000.0f;
+    s.preserveBody = 0.0f;
+    s.guard = 0.0f;
+    s.timeSmooth = 0.0f;
+    s.tonal = 1.0f;
+    ducker.setSettings (s);
+    ducker.setConfig (11, 4);
+
+    juce::AudioBuffer<float> audio { 1, blockSize }, sidechain { 1, blockSize };
+
+    double mainPhase = 0.0, sidePhase = 0.0;
+    const auto mainInc = 2.0 * kPi * 200.0 / sr;
+    const auto sideInc = 2.0 * kPi * 60.0 / sr;
+
+    for (int b = 0; b < 200; ++b)
+    {
+        for (int i = 0; i < blockSize; ++i)
+        {
+            audio.getWritePointer (0)[i] = 0.4f * (float) std::sin (mainPhase);
+
+            // A kick every half second, silent in between.
+            const auto n = b * blockSize + i;
+            const auto position = n % 24000;
+            sidechain.getWritePointer (0)[i] =
+                position < 2400 ? 0.8f * (float) std::sin (sidePhase)
+                                       * (1.0f - (float) position / 2400.0f)
+                                : 0.0f;
+
+            mainPhase += mainInc;
+            sidePhase += sideInc;
+        }
+
+        ducker.process (audio, sidechain, 1, blockSize);
+    }
+
+    const auto& snapshot = ducker.readSnapshot();
+    SF_CHECK (snapshot.numBins > 1);
+
+    const auto binHz = snapshot.sampleRate / (float) snapshot.fftSize;
+    const auto firstHighBin = juce::jlimit (0, snapshot.numBins - 1, (int) std::round (2000.0f / binHz));
+
+    auto worstCollision = 0.0f;
+    auto worstAttenuation = 0.0f;
+
+    for (int k = firstHighBin; k < snapshot.numBins; ++k)
+    {
+        worstCollision = juce::jmax (worstCollision, snapshot.collision[(size_t) k]);
+        worstAttenuation = juce::jmin (worstAttenuation, snapshot.gainDb[(size_t) k]);
+    }
+
+    SF_CHECK_MSG (worstCollision < 0.15f,
+                  ("empty high bins should not read as a collision, worst was "
+                   + num (worstCollision)).c_str());
+    SF_CHECK_MSG (worstAttenuation > -2.0f,
+                  ("empty high bins should barely be touched, worst was "
+                   + num (worstAttenuation) + " dB").c_str());
+}

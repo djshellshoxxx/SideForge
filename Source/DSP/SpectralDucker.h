@@ -141,6 +141,7 @@ private:
     std::array<float, kMaxBins> mainMag {};
     std::array<float, kMaxBins> collision {};
     std::array<float, kMaxBins> smoothScratch {};
+    std::array<float, kMaxBins> guardScratch {};
     std::array<float, kMaxBins> bandWeight {};
     std::array<float, kMaxBins> tiltWeight {};
     std::array<std::array<float, kMaxBins>, kMaxCh> binGain {};

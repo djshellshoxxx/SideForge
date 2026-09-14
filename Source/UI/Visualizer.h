@@ -54,6 +54,11 @@ public:
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
 
+    /** Right-click menu: freeze, how much history to show, and which layers are
+        drawn. These have nowhere else to live, since none of them is a
+        plugin parameter. */
+    void showContextMenu();
+
     std::function<void()> onFreezeToggled;
 
 private:

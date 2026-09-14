@@ -144,6 +144,11 @@ SFKnob::SFKnob (const ControlContext& contextToUse, const juce::String& paramete
     valueLabel.onEditorHide = [this] { commitTextEntry(); };
     slider.onTextEntryRequested = [this] { openTextEntry(); };
 
+    // The labels and the gaps around them are part of the control as far as the
+    // user is concerned, so a right-click on any of it opens the same menu.
+    nameLabel.addMouseListener (this, false);
+    valueLabel.addMouseListener (this, false);
+
     slider.onValueChange = [this]
     {
         if (auto* p = context.getParameter (parameterID))
@@ -156,6 +161,20 @@ SFKnob::SFKnob (const ControlContext& contextToUse, const juce::String& paramete
 
     if (parameter != nullptr)
         valueLabel.setText (parameter->getCurrentValueAsText(), juce::dontSendNotification);
+}
+
+void SFKnob::showMenu()
+{
+    if (auto* parameter = context.getParameter (parameterID))
+        ParameterMenu::show (*this, *parameter, context,
+                             [this] { openTextEntry(); },
+                             [this] { repaint(); });
+}
+
+void SFKnob::mouseDown (const juce::MouseEvent& e)
+{
+    if (e.mods.isPopupMenu())
+        showMenu();
 }
 
 void SFKnob::openTextEntry()
@@ -275,9 +294,23 @@ SFChoice::SFChoice (const ControlContext& contextToUse, const juce::String& para
     addAndMakeVisible (box);
     box.setTooltip (buildTooltip (parameter, tooltip));
 
+    // ComboBoxAttachment matches on item index and does not add the items
+    // itself, so the choices have to be populated before it is created.
+    if (auto* choiceParameter = dynamic_cast<juce::AudioParameterChoice*> (parameter))
+        box.addItemList (choiceParameter->choices, 1);
+
     if (context.apvts != nullptr && parameter != nullptr)
         attachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
             *context.apvts, parameterID, box);
+}
+
+void SFChoice::mouseDown (const juce::MouseEvent& e)
+{
+    if (! e.mods.isPopupMenu())
+        return;
+
+    if (auto* parameter = context.getParameter (parameterID))
+        ParameterMenu::show (*this, *parameter, context, {}, [this] { repaint(); });
 }
 
 void SFChoice::setRelevant (bool isRelevant)
@@ -353,6 +386,15 @@ SFToggle::SFToggle (const ControlContext& contextToUse, const juce::String& para
     if (context.apvts != nullptr && parameter != nullptr)
         attachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
             *context.apvts, parameterID, button);
+}
+
+void SFToggle::mouseDown (const juce::MouseEvent& e)
+{
+    if (! e.mods.isPopupMenu())
+        return;
+
+    if (auto* parameter = context.getParameter (parameterID))
+        ParameterMenu::show (*this, *parameter, context, {}, [this] { repaint(); });
 }
 
 void SFToggle::setRelevant (bool isRelevant)
@@ -506,6 +548,11 @@ void SFSegmentedControl::mouseExit (const juce::MouseEvent&)
 void SFSegmentedControl::paint (juce::Graphics& g)
 {
     const auto bounds = getLocalBounds().toFloat();
+
+    // Read the selection here rather than trusting the timer's cached copy, so a
+    // paint triggered by anything else still shows the right option.
+    if (auto* parameter = dynamic_cast<juce::AudioParameterChoice*> (context.getParameter (parameterID)))
+        shownIndex = parameter->getIndex();
 
     g.setColour (theme::panelSunken);
     g.fillRoundedRectangle (bounds, theme::cornerSmall);

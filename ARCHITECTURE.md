@@ -156,6 +156,9 @@ hands everything else to `MainView`.
 - `Source/DSP/` — all audio processing; no JUCE GUI includes.
 - `Source/Model/` — curve model, preset/state serialisation, factory presets.
 - `Source/UI/` — all rendering; reads snapshots produced by the audio thread.
+  The seven lower panels live in one `Panels.cpp` rather than a `Panels/`
+  directory: each is a constructor listing its controls plus a short relevance
+  rule, and seven pairs of ten-line files would be harder to read, not easier.
 - `Source/Utilities/` — lock-free primitives and smoothing helpers.
 - `Tests/` — a console runner that links the same core and UI sources as the plugin.
 

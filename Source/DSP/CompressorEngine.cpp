@@ -32,6 +32,7 @@ void CompressorEngine::reset()
     }
 
     lastMaxReductionDb = 0.0f;
+    currentRangeDb = settings.rangeDb;
 }
 
 void CompressorEngine::setSettings (const Settings& s) noexcept
@@ -118,6 +119,12 @@ void CompressorEngine::process (const juce::AudioBuffer<float>& envelope,
 
     float deepest = 0.0f;
 
+    // One linear ramp per block, shared by every channel so they stay identical.
+    const auto rangeAtStart = currentRangeDb;
+    const auto rangeStep = numSamples > 0
+                               ? (settings.rangeDb - rangeAtStart) / (float) numSamples
+                               : 0.0f;
+
     for (int ch = 0; ch < channels; ++ch)
     {
         const auto envCh = juce::jmin (ch, envelope.getNumChannels() - 1);
@@ -127,9 +134,12 @@ void CompressorEngine::process (const juce::AudioBuffer<float>& envelope,
         auto current = grDb[ch];
         auto average = grAverage[ch];
         auto hold    = holdCounter[ch];
+        auto range   = rangeAtStart;
 
         for (int i = 0; i < numSamples; ++i)
         {
+            range += rangeStep;
+
             const auto magnitude = env != nullptr ? sanitise (env[i]) : 0.0f;
             const auto inputDb   = juce::Decibels::gainToDecibels (magnitude, kMinLevelDb);
             const auto target    = computeGainReductionDb (inputDb);
@@ -149,19 +159,21 @@ void CompressorEngine::process (const juce::AudioBuffer<float>& envelope,
                 current = target + coeff * (current - target);
             }
 
-            current = flushDenormal (juce::jlimit (-settings.rangeDb, 0.0f, current));
+            current = flushDenormal (juce::jlimit (-range, 0.0f, current));
 
             const auto depth = -current;
             average = flushDenormal (depth + grAverageCoeff * (average - depth));
 
             deepest = juce::jmax (deepest, depth);
-            out[i] = juce::Decibels::decibelsToGain (current, -settings.rangeDb - 1.0f);
+            out[i] = juce::Decibels::decibelsToGain (current, -range - 1.0f);
         }
 
         grDb[ch] = current;
         grAverage[ch] = average;
         holdCounter[ch] = hold;
     }
+
+    currentRangeDb = settings.rangeDb;
 
     // Channels the caller did not ask for still need defined contents.
     for (int ch = channels; ch < gainOut.getNumChannels(); ++ch)

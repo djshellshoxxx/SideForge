@@ -153,6 +153,9 @@ private:
 
     std::atomic<bool> sidechainConnected { false };
     std::atomic<bool> sidechainHasSignal { false };
+    // A sparse trigger source is silent between hits, so the "receiving"
+    // indicator holds for a moment rather than flickering off between kicks.
+    int sidechainSignalHold = 0;
 
     int currentProgram = 0;
     int activeSlot = 0;

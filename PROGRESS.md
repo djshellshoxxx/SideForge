@@ -37,7 +37,8 @@ with it on, the plugin link takes roughly fifteen minutes.
 `SideForge_All` is the target that produces the VST3 and the standalone; the bare
 `SideForge` target only builds the shared code library.
 
-Last run: **117 passed, 0 failed** in both Debug and Release.
+Last run: **122 passed, 0 failed** in both Debug and Release, plus
+**25 checks, 0 failures** from `SideForgeValidate`.
 
 ## Completed
 
@@ -99,6 +100,14 @@ Last run: **117 passed, 0 failed** in both Debug and Release.
 - User preset save / load to `%APPDATA%\SideForge\Presets\*.sideforge`.
 - Icon generated into `Resources/` and wired into the build via `ICON_BIG` / `ICON_SMALL`.
 - README with build, install, routing, operation and troubleshooting sections.
+- `--screenshots=<dir>` on the test runner renders every page of the interface,
+  in every mode and at the minimum window size, so the layout can be inspected
+  without a host. Three of the bugs above were found this way.
+- `SideForgeValidate`: a small JUCE-based VST3 host that loads the built bundle
+  the way a DAW would and checks scanning, instantiation, bus layouts, processing
+  at three sample rates and three block sizes, silence, latency, state round
+  trips, malformed state and the editor. This stands in for pluginval, which is
+  not installed here.
 
 ## Bugs the tests caught
 
@@ -120,13 +129,32 @@ Recorded because each one would have been invisible by ear:
    sits below the true peak. Measuring RMS instead showed the crossover was
    flat all along.
 
+The next three came out of rendering the interface to PNG and looking at it,
+which is why `--screenshots=<dir>` is now part of the test runner:
+
+5. **The spectral noise floor was an absolute constant.** At `1e-6` it sat far
+   below the transform's own numerical noise, so above the destination's content
+   two bins of rounding error compared as "the sidechain owns this band" and the
+   whole top end was ducked whenever the sidechain was between hits. The floor
+   now scales with the FFT size, which puts it near -90 dBFS. The existing
+   silent-sidechain test missed this because it used noise as the destination
+   (so the main magnitude was never small) and an exactly-zero sidechain.
+6. **The artifact guard borrowed the collision array as scratch.** Harmless for
+   the audio, which had finished with it — but the snapshot published to the
+   visualiser is taken afterwards, so the collision map on screen was actually a
+   set of gain values, and read as a solid red wash across the spectrum.
+7. **Every choice control rendered blank.** `ComboBoxAttachment` matches on item
+   index and does not populate the box itself.
+
 ## Active problems
 
 - None.
 
 ## Next actions
 
-1. Run `pluginval` at strictness 8 if it can be installed, and record the result here.
+1. Run `pluginval` at strictness 8 if it can be installed, and record the result
+   here. In its absence the project has its own `SideForgeValidate` host, which
+   loads the built bundle through JUCE's VST3 hosting code.
 2. Test in a host with real sidechain routing (Reaper / Cubase) and confirm the
    footer's connection indicator matches what the host reports.
 

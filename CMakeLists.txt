@@ -45,6 +45,7 @@ set(SIDEFORGE_UI_SOURCES
     Source/UI/LookAndFeel.cpp
     Source/UI/ParameterContextMenu.cpp
     Source/UI/Controls.cpp
+    Source/UI/MacroControls.cpp
     Source/UI/MeterComponent.cpp
     Source/UI/Visualizer.cpp
     Source/UI/SpectrumView.cpp
@@ -140,5 +141,41 @@ if(MSVC)
     target_compile_options(SideForgeTests PRIVATE /W4 /wd4244 /wd4267 /MP)
 endif()
 
+# ---------------------------------------------------------------------------
+# VST3 validation host
+#
+# pluginval is not available here, so this small host loads the built .vst3
+# through JUCE's own VST3 hosting code - the same path a DAW takes - and checks
+# scanning, instantiation, bus layouts, processing, state and the editor.
+# ---------------------------------------------------------------------------
+juce_add_console_app(SideForgeValidate PRODUCT_NAME "SideForgeValidate")
+
+target_sources(SideForgeValidate PRIVATE Tools/ValidateVst3.cpp)
+
+target_compile_definitions(SideForgeValidate PUBLIC
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_STANDALONE_APPLICATION=1
+    JUCE_DISPLAY_SPLASH_SCREEN=0
+    JUCE_STRICT_REFCOUNTEDPOINTER=1
+    JUCE_MODAL_LOOPS_PERMITTED=0
+    JUCE_PLUGINHOST_VST3=1)
+
+target_link_libraries(SideForgeValidate
+    PRIVATE
+        juce::juce_audio_utils
+        juce::juce_dsp
+        juce::juce_gui_extra
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+
+if(MSVC)
+    target_compile_options(SideForgeValidate PRIVATE /W4 /wd4244 /wd4267 /MP)
+endif()
+
+add_dependencies(SideForgeValidate SideForge_All)
+
 enable_testing()
 add_test(NAME SideForgeUnitTests COMMAND SideForgeTests)
+add_test(NAME SideForgeVst3Validation COMMAND SideForgeValidate)

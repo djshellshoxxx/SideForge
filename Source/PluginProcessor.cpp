@@ -128,6 +128,7 @@ void SideForgeProcessor::prepareToPlay (double sampleRate, int maximumExpectedSa
 
     sidechainConnected.store (getBus (true, 1) != nullptr && getBus (true, 1)->isEnabled());
     sidechainHasSignal.store (false);
+    sidechainSignalHold = 0;
 
     lastTransport = {};
     prepared = true;
@@ -269,7 +270,12 @@ void SideForgeProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::M
                 magnitude = juce::jmax (magnitude, buffer.getMagnitude (src, 0, numSamples));
         }
 
-        sidechainHasSignal.store (scEnabled && magnitude > kSidechainSignalFloor);
+        if (scEnabled && magnitude > kSidechainSignalFloor)
+            sidechainSignalHold = (int) std::lround (preparedSampleRate * 0.5);
+        else
+            sidechainSignalHold = juce::jmax (0, sidechainSignalHold - numSamples);
+
+        sidechainHasSignal.store (scEnabled && sidechainSignalHold > 0);
     }
 
     // ---- input gain, then capture the dry path ------------------------------
@@ -295,8 +301,12 @@ void SideForgeProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::M
     // ---- detector + triggers ------------------------------------------------
     detector.process (scBuffer, 0, kMaxChannels, numSamples);
 
+    // The *raw* sidechain, not the detector's filtered copy: the meter should
+    // read what the user is actually sending, and a steep detector filter can
+    // overshoot full scale on a transient and light the clip indicator for a
+    // signal that never clipped. The filtered view is available on Audition.
     for (int ch = 0; ch < MeterBank::kChannels; ++ch)
-        meters.sidechain[ch].processBlock (detector.getFiltered().getReadPointer (ch), numSamples);
+        meters.sidechain[ch].processBlock (scBuffer.getReadPointer (ch), numSamples);
 
     {
         // The trigger listens to whatever its own source says, independently of the
@@ -454,10 +464,12 @@ void SideForgeProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::M
                              : multiband.getLastMinGain();
     meters.gainReduction.pushBlock (minGain, numSamples);
 
-    if (settings.vizEnabled)
+    // Nothing is watching during an offline bounce, so the analysis bus is not
+    // worth filling; skipping it also keeps renders bit-identical run to run.
+    if (settings.vizEnabled && ! isNonRealtime())
     {
         const auto* mainSrc = dryBuffer.getReadPointer (0);
-        const auto* sideSrc = detector.getFiltered().getReadPointer (0);
+        const auto* sideSrc = scBuffer.getReadPointer (0);
         const auto* outSrc  = buffer.getReadPointer (0);
         const auto* gainSrc = gainBuffer.getReadPointer (0);
 

@@ -68,6 +68,11 @@ private:
     float attackCoeff = 0.0f, releaseCoeff = 0.0f;
     int   holdSamples = 0;
 
+    // Range is ramped rather than applied as a step: it clamps the gain
+    // reduction directly, so automating it would otherwise jump the output by
+    // the whole difference in one sample.
+    float currentRangeDb = 60.0f;
+
     // Per-channel ballistic state.
     float grDb[kMaxCh] {};          // current gain reduction, <= 0
     float grAverage[kMaxCh] {};     // slow average of |grDb|, for auto release

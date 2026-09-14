@@ -524,3 +524,63 @@ SF_TEST (editor_everyPanelReportsAHeightThatFitsItsControls)
         }
     }
 }
+
+SF_TEST (editor_everyChoiceControlIsPopulatedAndShowsItsValue)
+{
+    auto p = makeProcessor();
+    auto editor = openEditor (*p);
+    editor->setSize (1180, 760);
+
+    std::vector<sf::SFChoice*> choices;
+    std::function<void (juce::Component&)> walk = [&] (juce::Component& c)
+    {
+        if (auto* choice = dynamic_cast<sf::SFChoice*> (&c))
+            choices.push_back (choice);
+
+        for (auto* child : c.getChildren())
+            if (child != nullptr)
+                walk (*child);
+    };
+    walk (*editor);
+
+    SF_CHECK_MSG (! choices.empty(), "the editor should contain choice controls");
+
+    for (auto* control : choices)
+    {
+        const auto id = control->getParameterID();
+        auto* parameter = dynamic_cast<juce::AudioParameterChoice*> (p->getAPVTS().getParameter (id));
+
+        SF_CHECK_MSG (parameter != nullptr,
+                      ("a choice control is bound to something that is not a choice parameter: "
+                       + id.toStdString()).c_str());
+
+        if (parameter == nullptr)
+            continue;
+
+        // An empty combo box renders blank and cannot be used: the attachment
+        // matches on item index and does not add the items itself.
+        SF_CHECK_MSG (control->getComboBox().getNumItems() == parameter->choices.size(),
+                      ("the " + id.toStdString() + " combo box has "
+                       + std::to_string (control->getComboBox().getNumItems())
+                       + " items but the parameter has "
+                       + std::to_string (parameter->choices.size())).c_str());
+
+        SF_CHECK_MSG (control->getComboBox().getText().isNotEmpty(),
+                      ("the " + id.toStdString() + " combo box shows nothing").c_str());
+
+        // ...and it follows the parameter.
+        for (int index = 0; index < parameter->choices.size(); ++index)
+        {
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) index));
+
+            SF_CHECK_MSG (control->getComboBox().getText() == parameter->choices[index],
+                          ("the " + id.toStdString() + " combo box did not follow the parameter to "
+                           + parameter->choices[index].toStdString()).c_str());
+        }
+
+        // Back to the default, via the base-class accessor: AudioParameterChoice
+        // hides getDefaultValue behind its own typed interface.
+        auto* asBase = static_cast<juce::AudioProcessorParameter*> (parameter);
+        asBase->setValueNotifyingHost (asBase->getDefaultValue());
+    }
+}

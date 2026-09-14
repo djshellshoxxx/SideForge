@@ -46,6 +46,10 @@ void MultibandProcessor::reset()
     }
 
     lastMinGain = 1.0f;
+    currentLink = settings.channelLink;
+
+    for (int band = 0; band < kNumBands; ++band)
+        currentDepth[band] = settings.bands[band].depth;
 }
 
 void MultibandProcessor::setSettings (const Settings& s)
@@ -159,11 +163,17 @@ void MultibandProcessor::process (juce::AudioBuffer<float>& audio,
     float globalMinGain = 1.0f;
     float bandDeepest[kNumBands] { 1.0f, 1.0f, 1.0f };
 
+    const auto inverseLength = numSamples > 0 ? 1.0f / (float) numSamples : 0.0f;
+    const auto linkAtStart = currentLink;
+    const auto linkStep = (settings.channelLink - linkAtStart) * inverseLength;
+
     for (int band = 0; band < numBands; ++band)
     {
         const auto& bandSettings = settings.bands[band];
         const auto attack = attackCoeff[band];
         const auto release = releaseCoeff[band];
+        const auto depthAtStart = currentDepth[band];
+        const auto depthStep = (bandSettings.depth - depthAtStart) * inverseLength;
 
         for (int ch = 0; ch < channels; ++ch)
         {
@@ -177,9 +187,14 @@ void MultibandProcessor::process (juce::AudioBuffer<float>& audio,
                                      : g;
 
             auto state = bandGainState[band][ch];
+            auto depth = depthAtStart;
+            auto link  = linkAtStart;
 
             for (int i = 0; i < numSamples; ++i)
             {
+                depth += depthStep;
+                link  += linkStep;
+
                 const auto own    = g != nullptr ? juce::jlimit (0.0f, 1.0f, g[i]) : 1.0f;
                 const auto other  = gOther != nullptr ? juce::jlimit (0.0f, 1.0f, gOther[i]) : own;
                 const auto linked = juce::jmin (own, other);   // deepest reduction of the pair
@@ -193,11 +208,11 @@ void MultibandProcessor::process (juce::AudioBuffer<float>& audio,
                     // "duck the centre, keep the sides open" a single control.
                     channelGain = (ch == 0)
                                       ? linked
-                                      : 1.0f - settings.channelLink * (1.0f - linked);
+                                      : 1.0f - link * (1.0f - linked);
                 }
                 else if (settings.channelMode == ChannelMode::LeftRight)
                 {
-                    channelGain = own + (linked - own) * settings.channelLink;
+                    channelGain = own + (linked - own) * link;
                 }
                 else
                 {
@@ -205,7 +220,7 @@ void MultibandProcessor::process (juce::AudioBuffer<float>& audio,
                 }
 
                 auto target = bandSettings.enabled
-                                  ? 1.0f - bandSettings.depth * (1.0f - channelGain)
+                                  ? 1.0f - depth * (1.0f - channelGain)
                                   : 1.0f;
                 target = juce::jlimit (0.0f, 1.0f, target);
 
@@ -222,7 +237,11 @@ void MultibandProcessor::process (juce::AudioBuffer<float>& audio,
 
             bandGainState[band][ch] = state;
         }
+
+        currentDepth[band] = bandSettings.depth;
     }
+
+    currentLink = settings.channelLink;
 
     // --- channel matrix: decode ---------------------------------------------
     if (midSide)
