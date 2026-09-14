@@ -1,0 +1,403 @@
+You are building a production-quality Windows VST3 audio plugin from scratch. The plugin is an advanced sidechain processor combining traditional sidechain compression, drawable rhythmic volume shaping, multiband processing, and intelligent spectral ducking.
+
+Working name: SideForge
+Framework: JUCE with CMake
+Language: modern C++20
+Primary target: Windows 10/11 x64, Visual Studio 2022, VST3
+Optional target: Standalone build for development and testing
+Do not add macOS, Linux, AU, or AAX support.
+
+Work autonomously. Do not stop to ask routine implementation questions. Make sensible engineering decisions and document them. Do not attempt the entire implementation in one uncontrolled pass: build it incrementally, compiling and testing after every major phase. Never continue past a failed build or test without resolving it.
+
+CONTEXT MANAGEMENT
+
+Claude Code has limited context. Keep the project manageable:
+
+- Create and maintain PROGRESS.md containing:
+  - Current phase
+  - Completed features
+  - Active problems
+  - Next actions
+  - Important architectural decisions
+  - Exact last successful build/test command
+- Create a concise ARCHITECTURE.md.
+- Update PROGRESS.md before changing phases.
+- Do not repeatedly reread the whole repository.
+- Inspect only files relevant to the current task.
+- Prefer small, focused source files over monolithic classes.
+- Do not place substantial DSP code in PluginProcessor.cpp or GUI code in PluginEditor.cpp.
+- Do not leave fake controls, placeholder DSP, TODO-only features, or controls that do nothing.
+- If a feature must be deferred, mark it clearly in PROGRESS.md and do not expose its control in the release UI.
+
+CORE PRODUCT
+
+SideForge should provide three blendable processing engines:
+
+1. Compressor Engine
+- External or internal sidechain
+- Threshold
+- Ratio
+- Soft/hard knee
+- Attack
+- Hold
+- Release
+- Range/maximum gain reduction
+- Peak, RMS, and hybrid detection
+- Feed-forward behavior
+- Auto/program-dependent release
+- Sidechain detector high-pass and low-pass filters
+- Sidechain audition
+- Stereo linking control
+- Dry/wet mix
+- Output gain
+- Optional automatic gain compensation
+
+2. Volume Curve Engine
+- User-drawable gain envelope
+- Bezier or tension-adjustable curve segments
+- Nodes that can be added, moved, or removed
+- Grid snapping
+- Straight, curved, stepped, and ramp segments
+- Tempo divisions from 1/64 note through multiple bars
+- Straight, dotted, and triplet values
+- One-shot, looping, and audio-triggered modes
+- MIDI note triggering where supported
+- Sample-accurate phase and retrigger behavior
+- Trigger threshold
+- Retrigger hysteresis
+- Minimum retrigger interval
+- Pre-delay and post-delay
+- Attack, hold, and recovery timing
+- Anti-click smoothing
+- Free-time millisecond mode
+- Host transport synchronization
+- Correct behavior when playback starts in the middle of a bar
+
+3. Spectral Ducking Engine
+- Analyse the sidechain spectrum
+- Attenuate frequency regions in the destination that collide with it
+- Adjustable spectral resolution
+- Frequency-range selection
+- Maximum attenuation
+- Spectral smoothing
+- Time smoothing
+- Attack and release behavior
+- Broadband-to-spectral blend
+- Preserve-body control to prevent over-thinning
+- Tonal-versus-transient sensitivity
+- Artifact protection
+- A “Collision Map” representing meaningful overlap between the destination and sidechain, rather than blindly applying an inverted sidechain spectrum
+
+Use a stable STFT overlap-add design with proper windowing and reconstruction. Add latency only when required and report it correctly to the host. Avoid phase discontinuities, zipper noise, musical noise, denormals, and invalid floating-point output.
+
+MULTIBAND AND CHANNEL PROCESSING
+
+Implement:
+
+- One-band broadband mode
+- Three-band mode with draggable crossovers
+- Per-band depth, attack, release, and enable/bypass
+- Stereo linked mode
+- Adjustable channel linking
+- Left/right mode
+- Mid/side processing
+- Ability to preserve mono low frequencies
+- Per-band processing without crossover gaps or large response errors
+
+Use suitable complementary crossover filters. Verify the recombined bands remain close to unity when no processing is occurring.
+
+TRIGGER SYSTEM
+
+Support:
+
+- External sidechain input
+- Internal input
+- MIDI note
+- Host transport/tempo
+- Manual GUI test trigger
+- Peak, RMS, transient, and frequency-weighted detection
+- Trigger filter with audition
+- Trigger threshold and hysteresis
+- Trigger history and visual trigger markers
+- Lookahead where enabled
+- Negative timing only through properly reported lookahead latency
+
+Architect the routing layer so additional trigger sources could be added later. Because DAW support for multiple sidechain buses is inconsistent, prioritize one dependable external sidechain bus. Do not create an unreliable multi-bus implementation. Document how a future companion Sender plugin could extend this.
+
+LATENCY AND QUALITY MODES
+
+Provide:
+
+- Live: zero or minimal latency; compressor and curve processing
+- Studio: moderate lookahead and efficient spectral processing
+- Spectral: higher-resolution frequency-dependent processing
+- Render: highest-quality configuration suitable for offline rendering
+
+Changing modes must update reported latency safely. Do not allocate memory or rebuild large DSP structures directly inside the real-time audio callback.
+
+GUI AND USER EXPERIENCE
+
+Design an intelligent, professional, resizable interface rather than arranging controls in a generic grid.
+
+The primary workflow should be understandable immediately:
+
+- Large central animated visualization
+- Four main macro controls:
+  - Depth
+  - Separation
+  - Timing
+  - Character
+- Mode selector:
+  - Compress
+  - Curve
+  - Spectral
+  - Hybrid
+- Expandable lower panels:
+  - Trigger
+  - Curve
+  - Spectrum
+  - Bands
+  - Routing
+  - Output
+- Persistent input, sidechain, output, and gain-reduction meters
+- Clear sidechain-connected/missing indicator
+- Tooltips and exact numeric values
+- Double-click parameter reset
+- Fine adjustment modifier
+- Undo/redo for curve editing
+- A/B comparison
+- Global bypass with click-free transitions
+- Scalable interface and saved window size
+- High-DPI support
+
+The layout must establish a visual hierarchy: essential controls remain accessible while advanced parameters are revealed contextually. Hide or disable irrelevant controls based on the active engine. Avoid tiny text, overcrowding, excessive modal windows, and skeuomorphic hardware styling.
+
+COLORFUL AUDIO ANIMATION
+
+Create a smooth, colorful, real-time central visualization showing:
+
+- Destination waveform
+- External sidechain waveform
+- Gain-reduction envelope
+- Trigger markers
+- Input and sidechain spectra
+- Spectral collision regions
+- Frequencies currently being attenuated
+- Optional removed-signal/delta spectrum
+
+Suggested visual language:
+
+- Destination: cyan/blue
+- Sidechain: orange/magenta
+- Collision energy: yellow/red
+- Gain reduction: violet
+- Output: green
+
+Use gradients and restrained glow effects, but maintain readability. Animation should feel fluid and musical rather than decorative.
+
+Critical performance requirements:
+
+- The audio thread must only write lightweight analysis data into lock-free FIFOs or atomics.
+- Rendering and FFT visualization must happen outside the audio thread.
+- Preallocate visualization buffers.
+- Limit GUI repaint rate to approximately 30–60 FPS.
+- Decimate waveform data appropriately.
+- Provide a reduced-animation or visualization-disable option.
+- The plugin must continue processing correctly when its editor is closed.
+- GUI activity must not materially increase audio-thread load or cause dropouts.
+
+MONITORING
+
+Provide:
+
+- Normal output
+- Sidechain listen
+- Delta/listen-to-removed-content
+- Gain-reduction history
+- Freeze visualization
+- Input, output, sidechain, and gain-reduction meters
+- Peak and RMS readings
+- Clip indicators
+- Optional loudness-matched bypass if it can be implemented reliably
+
+PARAMETER AND STATE DESIGN
+
+Use AudioProcessorValueTreeState or a similarly robust parameter system.
+
+Requirements:
+
+- Stable parameter IDs that will not be renamed casually
+- Host automation for appropriate parameters
+- Complete project-state recall
+- Versioned state format
+- Preset save/load
+- Factory presets for:
+  - Kick versus bass
+  - Vocal versus music
+  - Transparent spectral space
+  - Four-on-the-floor pumping
+  - Irregular live kick
+  - Mid/side vocal clearing
+  - Aggressive stutter
+  - Sub-only ducking
+- Clamp and validate all restored values
+- Smooth every automatable parameter capable of causing discontinuities
+- Avoid automating parameters that require unsafe real-time reconstruction; queue safe changes instead
+
+REAL-TIME SAFETY
+
+Inside processBlock and any directly called audio-processing function:
+
+- No heap allocation
+- No file access
+- No locks or blocking calls
+- No GUI calls
+- No logging
+- No container resizing
+- No unsafe object destruction
+- No uncontrolled exceptions
+
+Prepare buffers and DSP structures in prepareToPlay. Handle mono, stereo, missing sidechain, changing block sizes, sample-rate changes, transport discontinuities, bypass, and offline rendering safely. Silence, NaN, infinity, and extremely loud input must not destabilize processing.
+
+RECOMMENDED SOURCE ORGANIZATION
+
+Use a structure similar to:
+
+Source/
+  PluginProcessor.*
+  PluginEditor.*
+  Parameters/
+  DSP/
+    SidechainDetector.*
+    CompressorEngine.*
+    CurveEngine.*
+    SpectralDucker.*
+    MultibandProcessor.*
+    Crossover.*
+    EnvelopeFollower.*
+    TriggerEngine.*
+    LatencyManager.*
+    Metering.*
+  Model/
+    CurveModel.*
+    PresetState.*
+  UI/
+    MainView.*
+    Visualizer.*
+    CurveEditor.*
+    SpectrumView.*
+    MeterComponent.*
+    MacroControls.*
+    Panels/
+    LookAndFeel.*
+  Utilities/
+    LockFreeFifo.*
+    SmoothedValueHelpers.*
+Tests/
+  DSP/
+  State/
+  Rendering/
+
+Adjust this organization when justified, but preserve separation between DSP, state, and presentation.
+
+IMPLEMENTATION WORKFLOW
+
+Phase 1: Foundation
+- Verify available JUCE and toolchain versions.
+- Create CMake project and Windows VST3/Standalone targets.
+- Create parameter registry and versioned state.
+- Produce a plugin that loads, passes audio unchanged, saves state, and builds successfully.
+- Add automated tests and one repeatable build script or documented build command.
+
+Phase 2: Sidechain and Compressor
+- Configure buses correctly.
+- Implement sidechain detection and filtering.
+- Implement compressor, metering, smoothing, bypass, and sidechain audition.
+- Test with generated main and sidechain signals.
+
+Phase 3: Curve Engine
+- Implement curve data model independently from UI.
+- Implement sample-accurate evaluation and host synchronization.
+- Add audio/MIDI/manual triggering.
+- Add curve editor only after DSP tests pass.
+
+Phase 4: Multiband and Stereo
+- Implement crossover and reconstruction tests.
+- Add linked, dual, and mid/side processing.
+- Verify unity reconstruction when gain reduction is disabled.
+
+Phase 5: Spectral Engine
+- Implement and test STFT reconstruction with no attenuation first.
+- Confirm reconstruction level, latency, and stability.
+- Add collision analysis and spectral gain reduction incrementally.
+- Add artifact suppression and quality modes.
+
+Phase 6: Interface and Visualization
+- Build the responsive layout and custom look.
+- Connect every displayed control to a real parameter.
+- Add lock-free visualization data transfer.
+- Profile editor-open versus editor-closed CPU use.
+
+Phase 7: Presets, Compatibility, and Hardening
+- Add factory presets.
+- Validate state migration and malformed state handling.
+- Run stress tests with varying block sizes and sample rates.
+- Run plugin validation if a suitable validator is available.
+- Test release build and fresh installation behavior.
+- Update documentation.
+
+At the end of every phase:
+
+1. Build Debug and Release where practical.
+2. Run all existing tests.
+3. Correct warnings that indicate genuine defects.
+4. Record commands and results in PROGRESS.md.
+5. Commit the phase if this is a Git repository.
+6. Continue automatically when the phase is green.
+
+TESTING REQUIREMENTS
+
+Include deterministic tests for:
+
+- Silence produces silence
+- No sidechain does not crash
+- Bypass is transparent and click-free
+- Compressor attack and release behavior
+- Maximum gain-reduction range
+- Curve timing at multiple sample rates and block sizes
+- Tempo changes and transport jumps
+- Trigger hysteresis and retrigger prevention
+- Crossover unity reconstruction
+- Mid/side encode/decode
+- STFT unity reconstruction
+- Spectral processing produces finite output
+- State save/restore
+- Parameter boundary values
+- Mono and stereo layouts
+- Sidechain present and absent
+- Editor open and closed
+- Rapid parameter automation
+- Long-running processing stability
+
+Generate test signals programmatically. Compare output using tolerances rather than subjective statements. If pluginval is present, run it; otherwise document how to run it later.
+
+DEFINITION OF DONE
+
+The work is complete only when:
+
+- The Windows VST3 builds successfully.
+- The plugin can be loaded by a compatible host or validated with available tooling.
+- External sidechain routing works.
+- Compressor, curve, spectral, and hybrid modes process audio.
+- Every visible control works and restores correctly.
+- GUI animation reflects actual audio behavior.
+- Opening the editor does not cause audio glitches.
+- DSP output remains finite during stress tests.
+- Automated tests pass.
+- No known crash, deadlock, data race, audio-thread allocation, or unbounded CPU problem remains.
+- README includes build, installation, routing, operation, and troubleshooting instructions.
+- PROGRESS.md accurately describes completed and deferred work.
+
+Begin by inspecting the workspace and toolchain. Then create the architecture, phase plan, minimal compilable project, and tests. Work through the phases in order, fixing failures as they occur. Prioritize correctness, real-time safety, clean architecture, and a reliable build over excessive visual complexity.
+
+Be intelligent with token use!
