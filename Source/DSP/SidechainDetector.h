@@ -18,8 +18,12 @@ public:
 
     void setFilters (float highPassHz, float lowPassHz);
     void setGainDb (float db);
-    void setBallistics (Detector detector, float attackMs, float holdMs,
-                        float releaseMs, bool autoRelease);
+    /** Selects Peak / RMS / Hybrid magnitude extraction.
+
+        The detector deliberately has no attack, hold or release of its own: it
+        reports a fast magnitude and the engines downstream own the ballistics, so
+        that "Attack" on the compressor means attack of the gain reduction. */
+    void setDetectorType (Detector detector);
     /** 0 = fully independent channels, 100 = fully linked. */
     void setStereoLink (float percent) noexcept { stereoLink = juce::jlimit (0.0f, 1.0f, percent * 0.01f); }
 
@@ -31,6 +35,9 @@ public:
 
     /** Filtered sidechain signal, for audition and metering. */
     const juce::AudioBuffer<float>& getFiltered() const noexcept { return filtered; }
+
+    /** Per-sample detector envelope for every channel, as a buffer. */
+    const juce::AudioBuffer<float>& getEnvelopeBuffer() const noexcept { return envelope; }
 
     /** Per-sample detector envelope (linear magnitude) for a channel. */
     const float* getEnvelope (int channel) const noexcept
@@ -56,5 +63,6 @@ private:
 
     float stereoLink = 1.0f;
     float hpHz = 20.0f, lpHz = 20000.0f;
+    Detector currentDetector = Detector::Peak;
 };
 } // namespace sf

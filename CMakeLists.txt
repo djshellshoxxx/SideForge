@@ -20,8 +20,16 @@ add_subdirectory(JUCE)
 # ---------------------------------------------------------------------------
 set(SIDEFORGE_CORE_SOURCES
     Source/Parameters/ParameterLayout.cpp
+    Source/Parameters/MacroMapping.cpp
     Source/Model/CurveModel.cpp
     Source/Model/PresetState.cpp
+    Source/Model/FactoryPresets.cpp
+    Source/DSP/SidechainDetector.cpp
+    Source/DSP/CompressorEngine.cpp
+    Source/DSP/CurveEngine.cpp
+    Source/DSP/TriggerEngine.cpp
+    Source/DSP/MultibandProcessor.cpp
+    Source/DSP/SpectralDucker.cpp
 )
 
 set(SIDEFORGE_UI_SOURCES

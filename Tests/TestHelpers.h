@@ -32,9 +32,15 @@ inline std::unique_ptr<sf::SideForgeProcessor> makeProcessor (double sampleRate 
     const auto applied = p->setBusesLayout (layout);
     SF_CHECK_MSG (applied, "host layout was rejected by the processor");
 
+    // NOT setPlayConfigDetails: that helper calls disableNonMainBuses(), which
+    // would quietly switch the sidechain back off and leave every sidechain test
+    // running against a bus that is not there.
+    p->setRateAndBufferSizeDetails (sampleRate, blockSize);
     p->prepareToPlay (sampleRate, blockSize);
-    p->setPlayConfigDetails (p->getTotalNumInputChannels(), p->getTotalNumOutputChannels(),
-                             sampleRate, blockSize);
+
+    SF_CHECK_MSG (p->getTotalNumInputChannels() == mainChannels + scChannels,
+                  "the requested bus layout did not survive preparation");
+
     return p;
 }
 

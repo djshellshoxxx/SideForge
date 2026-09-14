@@ -25,6 +25,7 @@ void SidechainDetector::prepare (double sampleRate, int maxBlockSize, int numCha
         f.prepare (sampleRate);
 
     setFilters (hpHz, lpHz);
+    setDetectorType (currentDetector);
     reset();
 }
 
@@ -55,14 +56,15 @@ void SidechainDetector::setGainDb (float db)
     gain.setTargetValue (juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 36.0f, db)));
 }
 
-void SidechainDetector::setBallistics (Detector detector, float attackMs, float holdMs,
-                                       float releaseMs, bool autoRelease)
+void SidechainDetector::setDetectorType (Detector detector)
 {
+    currentDetector = detector;
+
     for (auto& f : followers)
     {
         f.setDetector (detector);
-        f.setTimes (attackMs, holdMs, releaseMs);
-        f.setAutoRelease (autoRelease);
+        f.setTimes (0.0f, 0.0f, 0.0f);   // instantaneous: ballistics live downstream
+        f.setAutoRelease (false);
     }
 }
 

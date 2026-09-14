@@ -16,11 +16,43 @@ int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
 
-    const char* filter = nullptr;
+    // --filter=a,b,c runs every test whose name contains any of the patterns.
+    std::vector<std::string> filters;
 
     for (int i = 1; i < argc; ++i)
-        if (std::strncmp (argv[i], "--filter=", 9) == 0)
-            filter = argv[i] + 9;
+    {
+        if (std::strncmp (argv[i], "--filter=", 9) != 0)
+            continue;
+
+        std::string list { argv[i] + 9 };
+        size_t start = 0;
+
+        while (start <= list.size())
+        {
+            const auto comma = list.find (',', start);
+            const auto piece = list.substr (start, comma == std::string::npos ? std::string::npos
+                                                                             : comma - start);
+            if (! piece.empty())
+                filters.push_back (piece);
+
+            if (comma == std::string::npos)
+                break;
+
+            start = comma + 1;
+        }
+    }
+
+    auto matches = [&filters] (const char* name)
+    {
+        if (filters.empty())
+            return true;
+
+        for (const auto& f : filters)
+            if (std::strstr (name, f.c_str()) != nullptr)
+                return true;
+
+        return false;
+    };
 
     auto& tests = sft::registry();
     std::stable_sort (tests.begin(), tests.end(),
@@ -31,11 +63,14 @@ int main (int argc, char** argv)
 
     for (const auto& t : tests)
     {
-        if (filter != nullptr && std::strstr (t.name, filter) == nullptr)
+        if (! matches (t.name))
         {
             ++skipped;
             continue;
         }
+
+        std::printf ("[ run  ] %s\n", t.name);
+        std::fflush (stdout);
 
         try
         {

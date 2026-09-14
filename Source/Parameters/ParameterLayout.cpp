@@ -101,9 +101,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         fp (pid::curveSmooth,    "Curve Smooth",    skewed (0.0f, 50.0f, 5.0f),      2.0f, msText),
         fp (pid::curvePreDelay,  "Pre Delay",       skewed (0.0f, 200.0f, 20.0f),    0.0f, msText),
         fp (pid::curvePostDelay, "Post Delay",      skewed (0.0f, 200.0f, 20.0f),    0.0f, msText),
-        fp (pid::curveAttack,    "Curve Attack",    skewed (0.0f, 200.0f, 10.0f),    1.0f, msText),
+        // Attack / Hold / Recover are rate limits on the curve's own output, so
+        // 0 ms means "play the drawn curve exactly" and is the right default.
+        fp (pid::curveAttack,    "Curve Attack",    skewed (0.0f, 200.0f, 10.0f),    0.0f, msText),
         fp (pid::curveHold,      "Curve Hold",      skewed (0.0f, 500.0f, 50.0f),    0.0f, msText),
-        fp (pid::curveRecover,   "Curve Recover",   skewed (1.0f, 2000.0f, 200.0f),150.0f, msText),
+        fp (pid::curveRecover,   "Curve Recover",   skewed (0.0f, 2000.0f, 200.0f),  0.0f, msText),
         std::make_unique<API> (makeID (pid::curveSnap), "Curve Snap", 1, 64, 16),
         bp (pid::curveSnapEnable, "Curve Snap On", true)));
 
