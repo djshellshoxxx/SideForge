@@ -121,8 +121,10 @@ bool restore (const juce::ValueTree& stateIn,
 
     if (auto ed = state.getChildWithName (editorTag); ed.isValid())
     {
-        editor.width     = juce::jlimit (820,  4096, (int) ed.getProperty (kWidth,  editor.width));
-        editor.height    = juce::jlimit (560,  2600, (int) ed.getProperty (kHeight, editor.height));
+        // The lower bounds match SideForgeEditor's minimum size, so a restored
+        // window can never be smaller than the layout is legible at.
+        editor.width     = juce::jlimit (980,  3840, (int) ed.getProperty (kWidth,  editor.width));
+        editor.height    = juce::jlimit (660,  2400, (int) ed.getProperty (kHeight, editor.height));
         editor.openPanel = juce::jlimit (-1,     16, (int) ed.getProperty (kPanel,  editor.openPanel));
         editor.freezeViz = (bool) ed.getProperty (kFreeze, editor.freezeViz);
     }

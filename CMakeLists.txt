@@ -11,6 +11,12 @@ endif()
 
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+# Link-time optimisation buys a few percent on this code but costs roughly a
+# quarter of an hour per link, which is too slow to iterate against. It is off by
+# default and turned on for the artefacts that actually ship:
+#   cmake -S . -B build -DSIDEFORGE_ENABLE_LTO=ON ...
+option(SIDEFORGE_ENABLE_LTO "Enable link-time optimisation for Release builds" OFF)
+
 add_subdirectory(JUCE)
 
 # ---------------------------------------------------------------------------
@@ -30,12 +36,26 @@ set(SIDEFORGE_CORE_SOURCES
     Source/DSP/TriggerEngine.cpp
     Source/DSP/MultibandProcessor.cpp
     Source/DSP/SpectralDucker.cpp
+    Source/Parameters/MidiLearn.cpp
 )
 
+# UI sources. Linked into the test runner too, so the tests can open the real
+# editor rather than a stand-in.
 set(SIDEFORGE_UI_SOURCES
+    Source/UI/LookAndFeel.cpp
+    Source/UI/ParameterContextMenu.cpp
+    Source/UI/Controls.cpp
+    Source/UI/MeterComponent.cpp
+    Source/UI/Visualizer.cpp
+    Source/UI/SpectrumView.cpp
+    Source/UI/CurveEditor.cpp
+    Source/UI/Panels.cpp
+    Source/UI/MainView.cpp
 )
 
 juce_add_plugin(SideForge
+    ICON_BIG                "${CMAKE_CURRENT_SOURCE_DIR}/Resources/icon_512.png"
+    ICON_SMALL              "${CMAKE_CURRENT_SOURCE_DIR}/Resources/icon_64.png"
     COMPANY_NAME            "SideForge Audio"
     BUNDLE_ID               com.sideforge.sideforge
     IS_SYNTH                FALSE
@@ -73,8 +93,11 @@ target_link_libraries(SideForge
         juce::juce_gui_extra
     PUBLIC
         juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+if(SIDEFORGE_ENABLE_LTO)
+    target_link_libraries(SideForge PUBLIC juce::juce_recommended_lto_flags)
+endif()
 
 if(MSVC)
     target_compile_options(SideForge PRIVATE /W4 /wd4244 /wd4267 /MP)

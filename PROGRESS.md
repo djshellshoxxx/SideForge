@@ -1,9 +1,12 @@
 # SideForge — Progress
 
 ## Current phase
-**Phase 1 — Foundation** (in progress)
+
+**Phase 7 — presets, compatibility and hardening.** Phases 1 to 6 are complete
+and green.
 
 ## Toolchain (verified 2026-09-14)
+
 | Tool | Version / path |
 |---|---|
 | CMake | 4.4.3 |
@@ -12,39 +15,134 @@
 | Generator | `Visual Studio 17 2022`, `-A x64` |
 | JUCE | 8.0.15, shallow clone in `JUCE/` (git-ignored) |
 | Git | 2.54.0 |
+| Python | 3.x with Pillow — used once, offline, to generate `Resources/` |
 
-> Note: only the VS **Build Tools** are installed — there is no full IDE. Build from the
-> command line with the documented `cmake --build` commands.
+> Only the VS **Build Tools** are installed; there is no full IDE. Build from the
+> command line with the commands below.
 
 ## Exact build / test commands
+
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release --target SideForge SideForgeTests
+cmake --build build --config Release --target SideForge_All
+cmake --build build --config Release --target SideForgeTests
 .\build\SideForgeTests_artefacts\Release\SideForgeTests.exe
 ```
-Debug: swap `Release` for `Debug` in both lines.
+
+Debug: swap `Release` for `Debug` in both build lines and in the test path.
+
+Link-time optimisation is behind `-DSIDEFORGE_ENABLE_LTO=ON` and off by default;
+with it on, the plugin link takes roughly fifteen minutes.
+
+`SideForge_All` is the target that produces the VST3 and the standalone; the bare
+`SideForge` target only builds the shared code library.
+
+Last run: **117 passed, 0 failed** in both Debug and Release.
 
 ## Completed
-- (nothing marked complete yet — Phase 1 is being built)
+
+### Phase 1 — Foundation
+- CMake project, VST3 + Standalone targets, console test runner linking the same sources.
+- Parameter registry with version-hinted stable IDs, full APVTS layout, cached raw pointers.
+- Versioned state wrapper that accepts a bare APVTS tree and drops non-finite values.
+- Editable curve model with a lock-free rendered-table exchange.
+
+### Phase 2 — Sidechain and compressor
+- Bus layout: stereo main + optional stereo/mono sidechain; mono and stereo both supported.
+- `SidechainDetector`: gain, high-pass, low-pass, peak / RMS / hybrid magnitude, stereo link.
+- `CompressorEngine`: soft knee, range clamp, attack / hold / release on the gain
+  reduction, program-dependent auto release, auto makeup.
+- Metering: peak, RMS, latching clip, gain reduction with peak hold.
+
+### Phase 3 — Curve engine
+- `CurveEngine`: host-locked phase, free-run mode, swing, phase offset, depth,
+  pre/post delay, attack / hold / recover rate limits, anti-click smoothing.
+- `TriggerEngine`: sidechain / internal / MIDI / transport / manual sources, peak,
+  RMS, transient and K-weighted detection, own filter with audition, threshold,
+  hysteresis, minimum interval.
+- `CurveEditor`: node add / move / remove, per-segment tension and type, grid
+  snapping, undo/redo, shape presets, playhead.
+
+### Phase 4 — Multiband and stereo
+- LR4 crossovers with an allpass correction on the low band so three bands
+  recombine flat; verified within 0.5 dB from 30 Hz to 15 kHz.
+- Per-band depth, attack, release and enable.
+- Stereo / Left-Right with adjustable link / Mid-Side with a link that controls
+  how much ducking reaches the sides. Mono-low stage.
+
+### Phase 5 — Spectral engine
+- STFT with Hann analysis *and* synthesis windowing and a normalisation factor
+  measured from the window, so reconstruction is exact to better than 1e-4 at
+  every quality setting, sample rate and block size.
+- Collision map with gating, preserve-body exponent, frequency range with tapered
+  edges, tilt, frequency and time smoothing, attack / release, tonal-versus-
+  transient sensitivity and an artifact guard.
+- Quality mode switching without allocation, applied at a block boundary so the
+  reported latency never disagrees with the signal path.
+
+### Phase 6 — Interface and visualisation
+- Full resizable interface: header, four macros, tabbed central display
+  (Waveform / Curve / Spectrum), meter column, seven parameter panels, status footer.
+- Custom look and feel; colour language shared between the visualiser and the panels.
+- Lock-free visualisation: `AnalysisBus` (SPSC ring of decimated columns) and a
+  triple-buffered `SpectralSnapshot`. No UI component reads DSP working state.
+- One 45 Hz timer for the whole editor. Reduced-animation and visualiser-off options.
+- Right-click menu on every control: host parameter commands, MIDI learn, direct
+  CC assignment, type value, reset, copy, paste.
+- MIDI learn with per-session persistence, applied on the message thread.
+- Tooltips, exact numeric readouts, editable value fields, double-click reset,
+  shift-drag fine adjustment, undo/redo for curve edits, A/B slots, click-free bypass.
+- Controls are disabled, not hidden, when the active engine does not use them.
+
+### Phase 7 — Presets, compatibility, hardening
+- Eight factory presets, exposed as host programs and in the preset menu.
+- User preset save / load to `%APPDATA%\SideForge\Presets\*.sideforge`.
+- Icon generated into `Resources/` and wired into the build via `ICON_BIG` / `ICON_SMALL`.
+- README with build, install, routing, operation and troubleshooting sections.
+
+## Bugs the tests caught
+
+Recorded because each one would have been invisible by ear:
+
+1. **STFT latency was wrong by one hop.** The reported latency was
+   `fftSize - hopSize`; an impulse test showed the true delay is a full
+   `fftSize`. Dry-path alignment and host delay compensation were both off by
+   256–512 samples until this was fixed.
+2. **Auto makeup returned silence.** `Decibels::decibelsToGain (x, 0.0f)` treats
+   `0 dB` as the minus-infinity floor and returns 0, so auto gain multiplied the
+   output by zero whenever the compressor was not reducing.
+3. **The test harness was disabling the sidechain bus.** `setPlayConfigDetails`
+   calls `disableNonMainBuses()`, so every "sidechain" test had been running
+   against a bus that was not there — and writing to its channels was a buffer
+   overrun that crashed the runner.
+4. **Crossover response looked wrong at 8 kHz.** It was the measurement: at
+   exactly `fs/6` a sine is sampled at six fixed phases, so the peak *sample*
+   sits below the true peak. Measuring RMS instead showed the crossover was
+   flat all along.
 
 ## Active problems
-- none
+
+- None.
 
 ## Next actions
-1. Finish Phase 1: configure + build + green tests, then commit.
-2. Phase 2 — sidechain detector + compressor engine.
+
+1. Run `pluginval` at strictness 8 if it can be installed, and record the result here.
+2. Test in a host with real sidechain routing (Reaper / Cubase) and confirm the
+   footer's connection indicator matches what the host reports.
+
+## Deferred / not exposed
+
+- **Multiple sidechain buses.** One dependable external bus only; host support
+  for more is inconsistent. `TriggerEngine`'s source switch is the extension
+  point a future companion Sender plugin would use. No control is exposed for it.
+- **Loudness-matched bypass.** Not implemented. Doing it honestly needs an
+  integrated-loudness measurement of both paths with a settling time that would
+  make the bypass button feel unpredictable; the plain crossfade is exact and
+  latency-matched instead. No control is exposed for it.
+- **Double-precision processing.** Not advertised and not implemented; the
+  `double` overload asserts and is never called.
 
 ## Architectural decisions
-| # | Decision | Why |
-|---|---|---|
-| 1 | JUCE **8.0.15**, not 9.x | 9.x is very new; 8.0.15 is the last well-settled 8 release and every API used here is stable in it. Upgrading later is a contained change. |
-| 2 | Core sources compiled into both the plugin and the test runner rather than a shared static lib | JUCE module targets inject their sources into every consumer; putting them in a static lib and also linking them into the plugin risks duplicate symbols on MSVC. Recompiling ~15 small files is cheaper than that class of bug. |
-| 3 | The test runner links the *real* `SideForgeProcessor` and the GUI modules | Lets the deterministic tests cover bus layouts, state recall and editor-open/closed behaviour instead of a stand-in. |
-| 4 | Every engine emits a **gain signal**, not audio | Compressor and curve both produce a broadband `0..1` multiplier; spectral produces a per-bin multiplier. Makes "Hybrid" mode a defined combination and each engine independently testable. |
-| 5 | Curve evaluation goes through a rendered lookup table published via a 3-slot lock-free exchange | The node list is a `std::vector` edited on the message thread; the audio thread must never walk it. Table lookup is also branch-free and cheap at sample rate. |
-| 6 | Parameter IDs carry a version hint (`juce::ParameterID{id, 1}`) and are declared in one header | IDs are a public contract with host automation lanes; centralising them makes accidental renames obvious. |
-| 7 | Curve segment types are `Curve` / `SCurve` / `Step` | "Straight", "ramp" and "curved" are all the `Curve` type at different tension values, so three types cover the required four behaviours without redundant UI. |
-| 8 | State is a versioned wrapper tree (`SideForgeState`) around the APVTS tree | Allows non-parameter data (curve nodes, editor size) in the same blob and gives `PresetState::migrate` somewhere to hook in. A bare APVTS tree is still accepted on load. |
 
-## Deferred / not yet exposed
-- Nothing deferred yet.
+See `ARCHITECTURE.md` — the decision table lives there so it sits next to the
+signal flow and threading rules it explains.

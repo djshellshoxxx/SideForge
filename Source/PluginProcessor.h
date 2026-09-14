@@ -2,6 +2,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "Parameters/ParameterLayout.h"
 #include "Parameters/MacroMapping.h"
+#include "Parameters/MidiLearn.h"
 #include "Model/CurveModel.h"
 #include "Model/PresetState.h"
 #include "DSP/AnalysisBus.h"
@@ -20,7 +21,8 @@
 namespace sf
 {
 class SideForgeProcessor : public juce::AudioProcessor,
-                           private juce::AsyncUpdater
+                           private juce::AsyncUpdater,
+                           private juce::Timer
 {
 public:
     SideForgeProcessor();
@@ -82,6 +84,9 @@ public:
     /** Message thread: fires the GUI's test trigger. */
     void fireManualTrigger() { triggerEngine.fireManualTrigger(); }
 
+    /** MIDI CC bindings, shared by every control's right-click menu. */
+    MidiLearnManager& getMidiLearn() noexcept { return midiLearn; }
+
     // -- A/B comparison ------------------------------------------------------
     void storeToSlot (int slot);
     void recallFromSlot (int slot);
@@ -96,6 +101,7 @@ public:
 
 private:
     void handleAsyncUpdate() override;
+    void timerCallback() override;
     void applySettings (const EngineSettings& s);
     void processChunk (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi,
                        const TransportInfo& transport, double quartersThisBlock);
@@ -107,6 +113,7 @@ private:
     CurveTableExchange curveTables;
     EditorState editorState;
     juce::AudioProcessorParameter* bypassParameter = nullptr;
+    MidiLearnManager midiLearn;
 
     // -- engines -------------------------------------------------------------
     SidechainDetector  detector;

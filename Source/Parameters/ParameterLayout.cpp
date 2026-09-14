@@ -43,6 +43,27 @@ std::unique_ptr<APC> cp (const char* id, const juce::String& name, juce::StringA
     return std::make_unique<APC> (makeID (id), name, std::move (choices), def);
 }
 
+/** For parameters that change the plugin's reported latency.
+
+    A host automating one of these would be renegotiating latency mid-bar, which
+    no host handles gracefully; they are setup controls, not performance controls.
+    They are still reachable by MIDI learn and by the user directly. */
+std::unique_ptr<APC> cpSetup (const char* id, const juce::String& name,
+                              juce::StringArray choices, int def)
+{
+    return std::make_unique<APC> (makeID (id), name, std::move (choices), def,
+                                  juce::AudioParameterChoiceAttributes().withAutomatable (false));
+}
+
+std::unique_ptr<APF> fpSetup (const char* id, const juce::String& name, Range range, float def,
+                              juce::String (*toText) (float, int))
+{
+    return std::make_unique<APF> (makeID (id), name, range, def,
+                                  juce::AudioParameterFloatAttributes()
+                                      .withStringFromValueFunction (toText)
+                                      .withAutomatable (false));
+}
+
 std::unique_ptr<APB> bp (const char* id, const juce::String& name, bool def)
 {
     return std::make_unique<APB> (makeID (id), name, def);
@@ -55,7 +76,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 
     layout.add (std::make_unique<Group> ("global", "Global", "|",
         cp (pid::mode,    "Mode",    juce::StringArray { "Compress", "Curve", "Spectral", "Hybrid" }, 0),
-        cp (pid::quality, "Quality", juce::StringArray { "Live", "Studio", "Spectral", "Render" }, 1),
+        cpSetup (pid::quality, "Quality", juce::StringArray { "Live", "Studio", "Spectral", "Render" }, 1),
         cp (pid::monitor, "Monitor", juce::StringArray { "Normal", "Sidechain", "Delta" }, 0),
         bp (pid::bypass,   "Bypass", false),
         bp (pid::autoGain, "Auto Gain", false),
@@ -86,7 +107,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         fp (pid::compRelease,    "Release",     skewed (5.0f, 2000.0f, 200.0f), 120.0f, msText),
         fp (pid::compRange,      "Range",       Range { 0.0f, 60.0f },           60.0f, dbText),
         fp (pid::compStereoLink, "Stereo Link", Range { 0.0f, 100.0f },         100.0f, pctText),
-        fp (pid::compLookahead,  "Lookahead",   Range { 0.0f, 20.0f },            0.0f, msText),
+        fpSetup (pid::compLookahead, "Lookahead",  Range { 0.0f, 20.0f },            0.0f, msText),
         cp (pid::compDetector,    "Detection",    juce::StringArray { "Peak", "RMS", "Hybrid" }, 2),
         bp (pid::compAutoRelease, "Auto Release", false)));
 

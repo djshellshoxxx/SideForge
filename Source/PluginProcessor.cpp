@@ -33,12 +33,23 @@ SideForgeProcessor::SideForgeProcessor()
 {
     params.attach (apvts);
     bypassParameter = apvts.getParameter (pid::bypass);
+    midiLearn.attach (apvts);
     curveTables.publish (curveModel);
+
+    // Applies learned CC movements on the message thread, so MIDI control keeps
+    // working when the editor is closed.
+    startTimerHz (30);
 }
 
 SideForgeProcessor::~SideForgeProcessor()
 {
+    stopTimer();
     cancelPendingUpdate();
+}
+
+void SideForgeProcessor::timerCallback()
+{
+    midiLearn.applyPendingChanges();
 }
 
 bool SideForgeProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -171,6 +182,8 @@ void SideForgeProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
 
     if (! prepared || numSamples <= 0)
         return;
+
+    midiLearn.processBlock (midi);
 
     settings = buildEngineSettings (params);
     applySettings (settings);
@@ -556,13 +569,19 @@ void SideForgeProcessor::setActiveSlot (int slot)
 // -- state ------------------------------------------------------------------
 juce::ValueTree SideForgeProcessor::captureState (const juce::String& presetName)
 {
-    return PresetState::capture (apvts, curveModel, editorState, presetName);
+    auto tree = PresetState::capture (apvts, curveModel, editorState, presetName);
+    tree.appendChild (midiLearn.toValueTree(), nullptr);
+    return tree;
 }
 
 bool SideForgeProcessor::applyState (const juce::ValueTree& tree)
 {
     if (! PresetState::restore (tree, apvts, curveModel, editorState))
         return false;
+
+    // Absent in an older session, which simply means no controllers were learned.
+    if (auto midiTree = tree.getChildWithName (MidiLearnManager::stateTag); midiTree.isValid())
+        midiLearn.fromValueTree (midiTree);
 
     curveTables.publish (curveModel);
     return true;

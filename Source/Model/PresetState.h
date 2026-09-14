@@ -7,8 +7,8 @@ namespace sf
 /** Non-automatable editor preferences that still belong in the session. */
 struct EditorState
 {
-    int  width  = 1120;
-    int  height = 720;
+    int  width  = 1180;
+    int  height = 760;
     int  openPanel = 0;     // index of the expanded lower panel, -1 = none
     bool freezeViz = false;
 };
