@@ -355,6 +355,12 @@ plugin; try the plugin's own Bypass control rather than the host's.
 position, so check the host is actually sending a playhead. In Free mode the
 cycle is a fixed rate and is not tempo-locked by design.
 
+**The automation list shows thousands of parameters.** SideForge itself has
+about ninety. VST3 has no raw MIDI CC, so JUCE's wrapper publishes 128
+controllers across 16 channels as parameters in order to receive them — that is
+where the other ~2000 come from, and it is what lets the plugin's MIDI learn
+work at all. They are grouped separately by every host that shows them.
+
 **High CPU.** Render quality runs a 4096-point STFT at 8x overlap. Drop to Studio
 for mixing. **Output → Visualiser → Reduced** halves the repaint rate, and
 turning the visualiser off entirely leaves processing untouched.

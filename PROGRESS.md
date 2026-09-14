@@ -158,6 +158,17 @@ which is why `--screenshots=<dir>` is now part of the test runner:
 2. Test in a host with real sidechain routing (Reaper / Cubase) and confirm the
    footer's connection indicator matches what the host reports.
 
+## Known and accounted for
+
+- The VST3 publishes ~2167 parameters. About ninety are SideForge's; the rest
+  are JUCE's MIDI CC parameters (128 controllers x 16 channels), which is how a
+  VST3 receives CC at all, and therefore how the plugin's own MIDI learn works.
+  Documented in the README so it does not read as a bug.
+- Right-click menus are wired on every control type and the MIDI learn behind
+  them is tested end to end, but the menu *appearing* is not automated — a
+  `PopupMenu` needs a running message loop, which the headless runner has not
+  got. Verified by hand instead.
+
 ## Deferred / not exposed
 
 - **Multiple sidechain buses.** One dependable external bus only; host support
