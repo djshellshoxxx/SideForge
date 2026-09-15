@@ -1,6 +1,8 @@
 #pragma once
 #include "Controls.h"
 #include "CurveEditor.h"
+#include "BandMatrixPanel.h"
+#include "BandMatrixView.h"
 #include "MacroControls.h"
 #include "MeterComponent.h"
 #include "Panels.h"
@@ -38,7 +40,7 @@ public:
     void resized() override;
 
     /** Central display pages. */
-    enum class DisplayPage { Wave = 0, Curve, Spectrum };
+    enum class DisplayPage { Wave = 0, Curve, Spectrum, Matrix };
 
     void setDisplayPage (DisplayPage page);
 
@@ -81,6 +83,7 @@ private:
 
     // -- header ---------------------------------------------------------------
     std::unique_ptr<SFSegmentedControl> modeSelector;
+    std::unique_ptr<SFSegmentedControl> routingSelector;
     std::unique_ptr<SFToggle> bypassToggle;
     juce::TextButton presetButton { "Presets" };
     juce::TextButton slotAButton { "A" }, slotBButton { "B" }, copySlotButton { "A > B" };
@@ -92,6 +95,8 @@ private:
     Visualizer visualizer;
     CurveEditor curveEditor;
     SpectrumView spectrumView;
+    std::unique_ptr<BandMatrixView> bandMatrixView;
+    BandMatrixPanel* bandMatrixPanel = nullptr;   // owned by `panels`
     juce::TextButton freezeButton { "Freeze" };
     juce::TextButton deltaButton { "Delta" };
     juce::TextButton undoButton { "Undo" }, redoButton { "Redo" };

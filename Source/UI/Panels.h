@@ -45,6 +45,10 @@ protected:
                          juce::Colour onColour = theme::accent);
     void addGroup (const juce::String& name);
 
+    /** The controls added since the last `addGroup`, so a subclass can show or
+        hide a whole group at once. */
+    std::vector<juce::Component*> componentsInLastGroup() const;
+
     /** Adds a component the panel owns but which is not a parameter control. */
     void addCustom (std::unique_ptr<juce::Component>, int width, int height);
 

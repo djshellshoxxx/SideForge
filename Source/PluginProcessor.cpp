@@ -568,6 +568,13 @@ void SideForgeProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::M
             analysis.pushSample (sanitise (mainSrc[i]), sanitise (sideSrc[i]),
                                  sanitise (outSrc[i]),
                                  juce::jlimit (0.0f, 1.0f, sanitise (gainSrc[i])), triggered);
+
+            // Raw samples for the Band Matrix display, which does its own FFT on
+            // the message thread. The dry signal goes along too, so the display
+            // can draw the original as a faint reference behind the processed
+            // one and the carve is visible rather than implied.
+            analysis.getRawTap().push (sanitise (mainSrc[i]), sanitise (outSrc[i]),
+                                       sanitise (sideSrc[i]));
         }
     }
 

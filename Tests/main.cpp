@@ -30,7 +30,11 @@ int writeScreenshots (const juce::String& directoryPath)
 
     directory.createDirectory();
 
-    sf::SideForgeProcessor processor;
+    // On the heap, deliberately: with four Band Matrix bands each carrying a
+    // worst-case FFT, the processor is a couple of megabytes and will not fit on
+    // a default thread stack. Hosts always heap-allocate it too.
+    auto processorOwner = std::make_unique<sf::SideForgeProcessor>();
+    auto& processor = *processorOwner;
 
     juce::AudioProcessor::BusesLayout layout;
     layout.inputBuses.add (juce::AudioChannelSet::stereo());
@@ -82,9 +86,9 @@ int writeScreenshots (const juce::String& directoryPath)
     if (mainView == nullptr)
         return 1;
 
-    const char* const pageNames[]  = { "waveform", "curve", "spectrum" };
+    const char* const pageNames[]  = { "waveform", "curve", "spectrum", "matrix" };
     const char* const panelNames[] = { "compressor", "trigger", "curve", "spectrum",
-                                       "bands", "routing", "output" };
+                                       "bands", "matrix", "routing", "output" };
 
     auto save = [&editor, &directory, mainView] (const juce::String& name)
     {
@@ -110,11 +114,11 @@ int writeScreenshots (const juce::String& directoryPath)
             std::printf ("wrote %s\n", file.getFullPathName().toRawUTF8());
     };
 
-    for (int page = 0; page < 3; ++page)
+    for (int page = 0; page < 4; ++page)
     {
         mainView->setDisplayPage ((sf::MainView::DisplayPage) page);
 
-        for (int panel = 0; panel < 7; ++panel)
+        for (int panel = 0; panel < mainView->getNumPanels(); ++panel)
         {
             mainView->setActivePanelForScreenshot (panel);
             save (juce::String (pageNames[page]) + "-" + panelNames[panel]);
@@ -173,6 +177,66 @@ int writeScreenshots (const juce::String& directoryPath)
 
         mainView->setDisplayPage (sf::MainView::DisplayPage::Wave);
         save ("hybrid-waveform");
+    }
+
+    // ...one with the Band Matrix actually routed, ducking hard on the lows and
+    // lightly on the highs, which is the feature's headline configuration...
+    {
+        auto set = [&processor] (const char* id, float value)
+        {
+            if (auto* parameter = processor.getAPVTS().getParameter (id))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        };
+
+        set (sf::pid::routingMode, (float) sf::RoutingMode::BandMatrix);
+        set (sf::pid::bmBandCount, 2.0f);            // three bands
+        set (sf::pid::bmXover1, 120.0f);
+        set (sf::pid::bmXover2, 2500.0f);
+        set (sf::pid::band[0].mode, (float) sf::BandProcessorMode::Ducker);
+        set (sf::pid::band[0].depth, 100.0f);
+        set (sf::pid::band[0].range, 20.0f);
+        set (sf::pid::band[0].threshold, -38.0f);
+        set (sf::pid::band[1].mode, (float) sf::BandProcessorMode::Compressor);
+        set (sf::pid::band[1].depth, 45.0f);
+        set (sf::pid::band[2].mode, (float) sf::BandProcessorMode::Ducker);
+        set (sf::pid::band[2].depth, 15.0f);
+
+        juce::AudioBuffer<float> buffer { processor.getTotalNumInputChannels(), 512 };
+        juce::MidiBuffer midi;
+
+        for (int block = 0; block < 300; ++block)
+        {
+            buffer.clear();
+
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                auto* main = buffer.getWritePointer (ch);
+                auto* side = buffer.getWritePointer (2 + ch);
+
+                for (int i = 0; i < 512; ++i)
+                {
+                    const auto n = block * 512 + i;
+                    const auto t = 2.0 * 3.14159265358979 * n / 48000.0;
+
+                    main[i] = 0.2f * (float) (std::sin (t * 60.0) + std::sin (t * 700.0)
+                                              + std::sin (t * 7000.0));
+
+                    // A long kick tail, so the captured analysis window lands
+                    // inside it and the detector trace is actually visible.
+                    const auto position = n % 24000;
+                    side[i] = position < 14000
+                                  ? 0.9f * (float) std::sin (t * 55.0)
+                                        * (1.0f - (float) position / 14000.0f)
+                                  : 0.0f;
+                }
+            }
+
+            processor.processBlock (buffer, midi);
+        }
+
+        mainView->setDisplayPage (sf::MainView::DisplayPage::Matrix);
+        mainView->setActivePanelForScreenshot (5);   // the Matrix panel
+        save ("bandmatrix-active");
     }
 
     // ...and one at the minimum size, where the layout is tightest.

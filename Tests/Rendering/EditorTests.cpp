@@ -4,6 +4,7 @@
 #include "UI/CurveEditor.h"
 #include "UI/MainView.h"
 #include "UI/Panels.h"
+#include "UI/BandMatrixPanel.h"
 #include <functional>
 #include <set>
 
@@ -140,12 +141,13 @@ SF_TEST (editor_paintsInEveryModeAndDisplayPage)
         editor->setSize (1180, 760);
 
         // Walk every panel and every display page so no paint path is skipped.
-        for (int panel = 0; panel < 7; ++panel)
-        {
-            auto* mainView = dynamic_cast<sf::MainView*> (editor->getChildComponent (0));
-            SF_CHECK_MSG (mainView != nullptr, "the editor should host a MainView");
+        auto* mainView = dynamic_cast<sf::MainView*> (editor->getChildComponent (0));
+        SF_CHECK_MSG (mainView != nullptr, "the editor should host a MainView");
 
-            mainView->setDisplayPage ((sf::MainView::DisplayPage) (panel % 3));
+        for (int panel = 0; panel < mainView->getNumPanels(); ++panel)
+        {
+            mainView->setActivePanelForScreenshot (panel);
+            mainView->setDisplayPage ((sf::MainView::DisplayPage) (panel % 4));
             renderEditor (*editor);
         }
     }
@@ -464,7 +466,9 @@ SF_TEST (editor_noControlIsClippedOutOfItsPanel)
         };
         walk (*editor);
 
-        SF_CHECK_MSG (found.size() == 7, "the editor should contain seven panels");
+        SF_CHECK_MSG (found.size() >= 7,
+                      ("the editor should contain at least the seven original panels, found "
+                       + std::to_string (found.size())).c_str());
 
         for (auto* panel : found)
         {
@@ -503,6 +507,7 @@ SF_TEST (editor_everyPanelReportsAHeightThatFitsItsControls)
     panels.push_back (std::make_unique<sf::CurvePanel> (context));
     panels.push_back (std::make_unique<sf::SpectrumPanel> (context));
     panels.push_back (std::make_unique<sf::BandsPanel> (context));
+    panels.push_back (std::make_unique<sf::BandMatrixPanel> (context, [] (int) {}));
     panels.push_back (std::make_unique<sf::RoutingPanel> (context));
     panels.push_back (std::make_unique<sf::OutputPanel> (context));
 

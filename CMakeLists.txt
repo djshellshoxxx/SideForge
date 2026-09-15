@@ -54,6 +54,8 @@ set(SIDEFORGE_UI_SOURCES
     Source/UI/SpectrumView.cpp
     Source/UI/CurveEditor.cpp
     Source/UI/Panels.cpp
+    Source/UI/BandMatrixView.cpp
+    Source/UI/BandMatrixPanel.cpp
     Source/UI/MainView.cpp
 )
 

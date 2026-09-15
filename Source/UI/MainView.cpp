@@ -15,8 +15,8 @@ constexpr int kPanelTabHeight   = 28;
 constexpr int kFooterHeight     = 22;
 constexpr int kPanelHeight      = 212;   // two rows of controls without scrolling
 
-const char* const kDisplayPageNames[] = { "Waveform", "Curve", "Spectrum" };
-constexpr int kNumDisplayPages = 3;
+const char* const kDisplayPageNames[] = { "Waveform", "Curve", "Spectrum", "Matrix" };
+constexpr int kNumDisplayPages = 4;
 
 enum PresetMenuId
 {
@@ -52,9 +52,17 @@ MainView::MainView (SideForgeProcessor& processorToUse, juce::AudioProcessorEdit
     curveEditor.setModel (&processor.getCurveModel());
     curveEditor.onCurveChanged = [this] { processor.curveChanged(); };
 
+    bandMatrixView = std::make_unique<BandMatrixView> (processor, context);
+    bandMatrixView->onBandSelected = [this] (int band)
+    {
+        if (bandMatrixPanel != nullptr)
+            bandMatrixPanel->setSelectedBand (band);
+    };
+
     addAndMakeVisible (visualizer);
     addChildComponent (curveEditor);
     addChildComponent (spectrumView);
+    addChildComponent (*bandMatrixView);
 
     visualizer.setFrozen (processor.getEditorState().freezeViz);
     visualizer.onFreezeToggled = [this]
@@ -130,6 +138,11 @@ void MainView::buildHeader()
     };
     addAndMakeVisible (*modeSelector);
 
+    // Full Range or Band Matrix. It sits next to the engine mode because the two
+    // together are what decide the signal path.
+    routingSelector = std::make_unique<SFSegmentedControl> (context, pid::routingMode, theme::ok);
+    addAndMakeVisible (*routingSelector);
+
     bypassToggle = std::make_unique<SFToggle> (context, pid::bypass, "Bypass",
                                                "Click-free global bypass. Latency stays reported, so the host "
                                                "keeps the track aligned.", theme::warning);
@@ -172,6 +185,18 @@ void MainView::buildPanels()
     panels.push_back (std::make_unique<CurvePanel> (context));
     panels.push_back (std::make_unique<SpectrumPanel> (context));
     panels.push_back (std::make_unique<BandsPanel> (context));
+
+    {
+        auto matrixPanel = std::make_unique<BandMatrixPanel> (context, [this] (int band)
+        {
+            if (bandMatrixView != nullptr)
+                bandMatrixView->setSelectedBand (band);
+        });
+
+        bandMatrixPanel = matrixPanel.get();
+        panels.push_back (std::move (matrixPanel));
+    }
+
     panels.push_back (std::make_unique<RoutingPanel> (context));
     panels.push_back (std::make_unique<OutputPanel> (context));
 
@@ -198,6 +223,9 @@ void MainView::setDisplayPage (DisplayPage page)
     visualizer.setVisible (page == DisplayPage::Wave);
     curveEditor.setVisible (page == DisplayPage::Curve);
     spectrumView.setVisible (page == DisplayPage::Spectrum);
+
+    if (bandMatrixView != nullptr)
+        bandMatrixView->setVisible (page == DisplayPage::Matrix);
 
     undoButton.setVisible (page == DisplayPage::Curve);
     redoButton.setVisible (page == DisplayPage::Curve);
@@ -356,6 +384,16 @@ void MainView::timerCallback()
     else if (refreshCounter % 3 == 0)
         spectrumView.refresh();   // keep it warm so switching pages is not blank
 
+    if (bandMatrixView != nullptr)
+    {
+        // The matrix display runs its own FFT, so it only analyses while it is
+        // the page on screen.
+        bandMatrixView->setAnalysisEnabled (displayPage == DisplayPage::Matrix);
+
+        if (displayPage == DisplayPage::Matrix || refreshCounter % 6 == 0)
+            bandMatrixView->refresh();
+    }
+
     inputMeter.refresh();
     sidechainMeter.refresh();
     outputMeter.refresh();
@@ -400,6 +438,9 @@ void MainView::refreshRelevance()
                                     "Click to switch and select it.");
 
     macros->setMacrosActive (readBool (processor.getParams().macrosEnabled));
+
+    if (bandMatrixView != nullptr)
+        bandMatrixView->setReducedAnimation (settings.vizReduced);
 
     visualizer.setEnabled (settings.vizEnabled);
     visualizer.setReducedAnimation (settings.vizReduced);
@@ -514,7 +555,9 @@ void MainView::layoutHeader (juce::Rectangle<int> area)
     right.removeFromRight (theme::gapSmall);
     presetButton.setBounds (right.removeFromRight (100).reduced (0, 4));
 
-    modeSelector->setBounds (area.removeFromLeft (juce::jmin (300, area.getWidth())).reduced (0, 2));
+    modeSelector->setBounds (area.removeFromLeft (juce::jmin (260, area.getWidth())).reduced (0, 2));
+    area.removeFromLeft (theme::gap);
+    routingSelector->setBounds (area.removeFromLeft (juce::jmin (176, area.getWidth())).reduced (0, 2));
 }
 
 void MainView::layoutDisplay (juce::Rectangle<int> area)
@@ -564,6 +607,9 @@ void MainView::layoutDisplay (juce::Rectangle<int> area)
     visualizer.setBounds (area);
     curveEditor.setBounds (area);
     spectrumView.setBounds (area);
+
+    if (bandMatrixView != nullptr)
+        bandMatrixView->setBounds (area);
 }
 
 void MainView::layoutPanels (juce::Rectangle<int> area)

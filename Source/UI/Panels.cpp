@@ -21,6 +21,18 @@ void PanelBase::addGroup (const juce::String& name)
     groups.push_back ({ name, {} });
 }
 
+std::vector<juce::Component*> PanelBase::componentsInLastGroup() const
+{
+    std::vector<juce::Component*> found;
+    const auto group = (int) groups.size() - 1;
+
+    for (const auto& item : items)
+        if (item.group == group)
+            found.push_back (item.component);
+
+    return found;
+}
+
 SFKnob& PanelBase::addKnob (const juce::String& parameterID, const juce::String& name,
                             const juce::String& tooltip)
 {
@@ -109,7 +121,8 @@ int PanelBase::layout (int width, bool apply)
         auto total = 0;
 
         for (auto scan = index; scan < items.size() && items[scan].group == items[index].group; ++scan)
-            total += items[scan].width + theme::gapSmall;
+            if (items[scan].component != nullptr && items[scan].component->isVisible())
+                total += items[scan].width + theme::gapSmall;
 
         return total;
     };
@@ -117,6 +130,13 @@ int PanelBase::layout (int width, bool apply)
     for (size_t index = 0; index < items.size(); ++index)
     {
         const auto& item = items[index];
+
+        // Hidden controls take no space. The Band Matrix panel holds a full set
+        // of controls for all four bands and shows one at a time, so skipping
+        // them here is what lets the visible band flow as if it were alone.
+        if (item.component == nullptr || ! item.component->isVisible())
+            continue;
+
         const auto startsGroup = (item.group != currentGroup);
         const auto needsLabel = startsGroup && groups[(size_t) item.group].name.isNotEmpty();
         const auto extra = startsGroup && currentGroup >= 0 ? kGroupGap : 0;
