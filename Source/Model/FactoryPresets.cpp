@@ -1,5 +1,6 @@
 #include "FactoryPresets.h"
 #include "../Parameters/ParamIDs.h"
+#include "../Parameters/BandMatrixParameters.h"
 #include "../Parameters/Divisions.h"
 
 namespace sf::FactoryPresets
@@ -19,6 +20,20 @@ struct Preset
     int curveShape;                 // index into CurveModel::getShapeNames()
     std::initializer_list<Setting> settings;
 };
+
+/** Shorthands for the Band Matrix tables below. `BM(n)` is band n's ID block. */
+#define BM(n) pid::band[n]
+
+constexpr float kMatrix   = (float) RoutingMode::BandMatrix;
+constexpr float kFull     = (float) RoutingMode::FullRange;
+constexpr float kOff      = (float) BandProcessorMode::Off;
+constexpr float kDuck     = (float) BandProcessorMode::Ducker;
+constexpr float kComp     = (float) BandProcessorMode::Compressor;
+constexpr float kLimit    = (float) BandProcessorMode::Limiter;
+constexpr float kScExt    = (float) BandScSource::External;
+constexpr float kScExtBand = (float) BandScSource::ExternalBand;
+constexpr float kTwoBands   = 1.0f;   // the choice index, not the count
+constexpr float kThreeBands = 2.0f;
 
 // Division indices, named so the tables below stay readable.
 constexpr int kDiv16  = 7;    // 1/16
@@ -99,6 +114,169 @@ const Preset kPresets[] =
         { pid::curveSyncMode, (float) SyncMode::Tempo }, { pid::curveDivision, (float) kDiv16 },
         { pid::curveTrigMode, (float) TrigMode::Loop }, { pid::curveDepth, 100.0f },
         { pid::curveSmooth, 0.6f }, { pid::curveSwing, 0.0f } } },
+
+    // ---------------------------------------------------------------------
+    //  Band Matrix
+    // ---------------------------------------------------------------------
+
+    { "Kick vs Sub Bass",
+      "Two bands. Everything under 90 Hz ducks hard for the kick; the rest of the bass is untouched.",
+      0,
+      { { pid::routingMode, kMatrix }, { pid::bmBandCount, kTwoBands },
+        { pid::bmXover1, 90.0f },
+        { BM(0).mode, kDuck }, { BM(0).depth, 100.0f }, { BM(0).range, 24.0f },
+        { BM(0).threshold, -34.0f }, { BM(0).attack, 0.5f }, { BM(0).release, 120.0f },
+        { BM(0).scSource, kScExt },
+        { BM(1).mode, kOff } } },
+
+    { "Kick vs Full Bass",
+      "Two bands with a higher split, so the whole bass register steps aside rather than just the sub.",
+      0,
+      { { pid::routingMode, kMatrix }, { pid::bmBandCount, kTwoBands },
+        { pid::bmXover1, 250.0f },
+        { BM(0).mode, kDuck }, { BM(0).depth, 100.0f }, { BM(0).range, 18.0f },
+        { BM(0).threshold, -32.0f }, { BM(0).attack, 1.0f }, { BM(0).release, 150.0f },
+        { BM(1).mode, kOff } } },
+
+    { "Hard Lows, Light Highs",
+      "The headline Band Matrix move: severe low-end space, a touch of movement up top, nothing in between that pumps.",
+      0,
+      { { pid::routingMode, kMatrix }, { pid::bmBandCount, kThreeBands },
+        { pid::bmXover1, 120.0f }, { pid::bmXover2, 2500.0f },
+        { BM(0).mode, kDuck }, { BM(0).depth, 100.0f }, { BM(0).range, 18.0f },
+        { BM(0).attack, 0.4f }, { BM(0).release, 140.0f }, { BM(0).threshold, -34.0f },
+        { BM(1).mode, kComp }, { BM(1).depth, 45.0f }, { BM(1).ratio, 3.0f },
+        { BM(1).range, 12.0f }, { BM(1).attack, 8.0f }, { BM(1).release, 100.0f },
+        { BM(2).mode, kDuck }, { BM(2).depth, 15.0f }, { BM(2).range, 9.0f },
+        { BM(2).attack, 18.0f }, { BM(2).release, 60.0f } } },
+
+    { "Vocal vs Music Bands",
+      "Three bands keyed from a vocal, with the midrange taking most of the movement.",
+      0,
+      { { pid::routingMode, kMatrix }, { pid::bmBandCount, kThreeBands },
+        { pid::bmXover1, 200.0f }, { pid::bmXover2, 5000.0f },
+        { BM(0).mode, kDuck }, { BM(0).depth, 30.0f }, { BM(0).range, 9.0f },
+        { BM(1).mode, kDuck }, { BM(1).depth, 85.0f }, { BM(1).range, 12.0f },
+        { BM(1).attack, 6.0f }, { BM(1).release, 180.0f }, { BM(1).threshold, -36.0f },
+        { BM(2).mode, kDuck }, { BM(2).depth, 35.0f }, { BM(2).range, 8.0f },
+        { BM(2).attack, 12.0f }, { BM(2).release, 140.0f } } },
+
+    { "Vocal Presence Pocket",
+      "Carves a narrow presence window so a lead sits forward, leaving the low end and the air alone.",
+      0,
+      { { pid::routingMode, kMatrix }, { pid::bmBandCount, kThreeBands },
+        { pid::bmXover1, 1200.0f }, { pid::bmXover2, 6000.0f },
+        { BM(0).mode, kOff },
+        { BM(1).mode, kDuck }, { BM(1).depth, 90.0f }, { BM(1).range, 10.0f },
+        { BM(1).attack, 5.0f }, { BM(1).release, 200.0f }, { BM(1).threshold, -38.0f },
+        { BM(2).mode, kOff } } },
+
+    { "Midrange Dialogue Space",
+      "Gentle, slow midrange ducking for dialogue over a bed. Wide band, low depth, long release.",
+      0,
+      { { pid::routingMode, kMatrix }, { pid::bmBandCount, kThreeBands },
+        { pid::bmXover1, 250.0f }, { pid::bmXover2, 4000.0f },
+        { BM(0).mode, kOff },
+        { BM(1).mode, kDuck }, { BM(1).depth, 60.0f }, { BM(1).range, 7.0f },
+        { BM(1).attack, 20.0f }, { BM(1).release, 400.0f }, { BM(1).threshold, -40.0f },
+        { BM(2).mode, kOff } } },
+
+    { "Snare vs Synth Mids",
+      "Fast, short mid-band ducking that opens a slot for a snare without touching the sub or the top.",
+      0,
+      { { pid::routingMode, kMatrix }, { pid::bmBandCount, kThreeBands },
+        { pid::bmXover1, 180.0f }, { pid::bmXover2, 4000.0f },
+        { BM(0).mode, kOff },
+        { BM(1).mode, kDuck }, { BM(1).depth, 100.0f }, { BM(1).range, 14.0f },
+        { BM(1).attack, 0.5f }, { BM(1).release, 70.0f }, { BM(1).threshold, -30.0f },
+        { BM(1).scSource, kScExtBand },
+        { BM(2).mode, kDuck }, { BM(2).depth, 20.0f }, { BM(2).range, 8.0f } } },
+
+    { "Hi-Hat vs Bright Pads",
+      "Only the top band moves, keyed from the matching high band of the sidechain.",
+      0,
+      { { pid::routingMode, kMatrix }, { pid::bmBandCount, kThreeBands },
+        { pid::bmXover1, 200.0f }, { pid::bmXover2, 6000.0f },
+        { BM(0).mode, kOff },
+        { BM(1).mode, kOff },
+        { BM(2).mode, kDuck }, { BM(2).depth, 80.0f }, { BM(2).range, 10.0f },
+        { BM(2).attack, 1.0f }, { BM(2).release, 60.0f }, { BM(2).threshold, -38.0f },
+        { BM(2).scSource, kScExtBand } } },
+
+    { "Sub-Only Duck",
+      "A single low band under 70 Hz ducking hard. The most surgical way to make room for a kick.",
+      0,
+      { { pid::routingMode, kMatrix }, { pid::bmBandCount, kTwoBands },
+        { pid::bmXover1, 70.0f },
+        { BM(0).mode, kDuck }, { BM(0).depth, 100.0f }, { BM(0).range, 30.0f },
+        { BM(0).attack, 0.3f }, { BM(0).release, 100.0f }, { BM(0).threshold, -36.0f },
+        { BM(1).mode, kOff } } },
+
+    { "Three-Band Pump",
+      "All three bands ducking on the same trigger, with progressively lighter depth and slower attack upwards.",
+      0,
+      { { pid::routingMode, kMatrix }, { pid::bmBandCount, kThreeBands },
+        { pid::bmXover1, 150.0f }, { pid::bmXover2, 3000.0f },
+        { BM(0).mode, kDuck }, { BM(0).depth, 100.0f }, { BM(0).range, 18.0f },
+        { BM(0).attack, 0.5f }, { BM(0).release, 160.0f },
+        { BM(1).mode, kDuck }, { BM(1).depth, 70.0f }, { BM(1).range, 14.0f },
+        { BM(1).attack, 4.0f }, { BM(1).release, 140.0f },
+        { BM(2).mode, kDuck }, { BM(2).depth, 45.0f }, { BM(2).range, 10.0f },
+        { BM(2).attack, 10.0f }, { BM(2).release, 120.0f } } },
+
+    { "Transparent Multiband Duck",
+      "Low depth everywhere and slow timing. Hard to hear working, obvious the moment you bypass it.",
+      0,
+      { { pid::routingMode, kMatrix }, { pid::bmBandCount, kThreeBands },
+        { pid::bmXover1, 130.0f }, { pid::bmXover2, 3500.0f },
+        { BM(0).mode, kComp }, { BM(0).depth, 40.0f }, { BM(0).range, 8.0f },
+        { BM(0).ratio, 2.5f }, { BM(0).attack, 12.0f }, { BM(0).release, 250.0f },
+        { BM(1).mode, kComp }, { BM(1).depth, 30.0f }, { BM(1).range, 6.0f },
+        { BM(1).ratio, 2.0f }, { BM(1).attack, 20.0f }, { BM(1).release, 300.0f },
+        { BM(2).mode, kComp }, { BM(2).depth, 20.0f }, { BM(2).range, 5.0f },
+        { BM(2).ratio, 2.0f }, { BM(2).attack, 25.0f }, { BM(2).release, 300.0f } } },
+
+    { "Low-Band Limiter",
+      "A ceiling on the low band whenever the trigger hits, leaving everything above it completely alone.",
+      0,
+      { { pid::routingMode, kMatrix }, { pid::bmBandCount, kTwoBands },
+        { pid::bmXover1, 160.0f },
+        { BM(0).mode, kLimit }, { BM(0).depth, 100.0f }, { BM(0).range, 30.0f },
+        { BM(0).threshold, -26.0f }, { BM(0).knee, 2.0f },
+        { BM(0).attack, 0.2f }, { BM(0).release, 60.0f }, { BM(0).lookahead, 2.0f },
+        { BM(1).mode, kOff } } },
+
+    { "Mid Compression, High Duck",
+      "Two different processors at once: the mids are compressed, the top is ducked.",
+      0,
+      { { pid::routingMode, kMatrix }, { pid::bmBandCount, kThreeBands },
+        { pid::bmXover1, 200.0f }, { pid::bmXover2, 4000.0f },
+        { BM(0).mode, kOff },
+        { BM(1).mode, kComp }, { BM(1).depth, 80.0f }, { BM(1).range, 14.0f },
+        { BM(1).ratio, 4.0f }, { BM(1).attack, 6.0f }, { BM(1).release, 120.0f },
+        { BM(2).mode, kDuck }, { BM(2).depth, 55.0f }, { BM(2).range, 10.0f },
+        { BM(2).attack, 8.0f }, { BM(2).release, 90.0f } } },
+
+    { "Wide Pads Behind Vocal",
+      "Mid and high bands duck while the low band holds, so a pad recedes without losing its weight.",
+      0,
+      { { pid::routingMode, kMatrix }, { pid::bmBandCount, kThreeBands },
+        { pid::bmXover1, 160.0f }, { pid::bmXover2, 3000.0f },
+        { BM(0).mode, kOff },
+        { BM(1).mode, kDuck }, { BM(1).depth, 75.0f }, { BM(1).range, 11.0f },
+        { BM(1).attack, 10.0f }, { BM(1).release, 260.0f }, { BM(1).threshold, -38.0f },
+        { BM(2).mode, kDuck }, { BM(2).depth, 60.0f }, { BM(2).range, 9.0f },
+        { BM(2).attack, 14.0f }, { BM(2).release, 240.0f }, { BM(2).threshold, -38.0f } } },
+
+    { "Full-Range Classic Sidechain",
+      "No band split at all: the original full-range compressor, for when the whole track should move together.",
+      0,
+      { { pid::routingMode, kFull },
+        { pid::mode, (float) Mode::Compress }, { pid::quality, (float) Quality::Studio },
+        { pid::compThreshold, -28.0f }, { pid::compRatio, 8.0f }, { pid::compKnee, 4.0f },
+        { pid::compAttack, 1.0f }, { pid::compRelease, 140.0f }, { pid::compRange, 15.0f },
+        { pid::compDetector, (float) Detector::Peak },
+        { pid::scHighPass, 25.0f }, { pid::scLowPass, 8000.0f } } },
 
     { "Sub Only Ducking",
       "Three-band split with only the low band ducking, so the sub steps aside and nothing else moves.",

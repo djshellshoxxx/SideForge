@@ -28,7 +28,11 @@ struct EditorState
 */
 namespace PresetState
 {
-inline constexpr int kStateVersion = 1;
+/** 1 = the original full-range plugin.
+    2 = adds the Band Matrix. Nothing from version 1 was renamed or repurposed,
+        so a version-1 tree simply has no values for the new parameters and they
+        take their defaults - which is Full Range, sounding exactly as before. */
+inline constexpr int kStateVersion = 2;
 
 extern const juce::Identifier rootTag;
 extern const juce::Identifier paramsTag;

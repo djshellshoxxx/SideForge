@@ -32,6 +32,7 @@ SideForgeProcessor::SideForgeProcessor()
       apvts (*this, &undoManager, PresetState::paramsTag, createParameterLayout())
 {
     params.attach (apvts);
+    bandMatrixParams.attach (apvts);
     bypassParameter = apvts.getParameter (pid::bypass);
     midiLearn.attach (apvts);
     curveTables.publish (curveModel);
@@ -94,6 +95,7 @@ void SideForgeProcessor::prepareToPlay (double sampleRate, int maximumExpectedSa
     gainBuffer.setSize (preparedChannels, preparedBlockSize, false, true, true);
     curveGainBuffer.setSize (1, preparedBlockSize, false, true, true);
     scAligned.setSize (kMaxChannels, preparedBlockSize, false, true, true);
+    scMatrix.setSize (kMaxChannels, preparedBlockSize, false, true, true);
     chunkMidi.ensureSize (4096);
 
     // -- engines --------------------------------------------------------------
@@ -103,6 +105,7 @@ void SideForgeProcessor::prepareToPlay (double sampleRate, int maximumExpectedSa
     triggerEngine.prepare (preparedSampleRate, preparedBlockSize, kMaxChannels);
     multiband.prepare (preparedSampleRate, preparedBlockSize, preparedChannels);
     spectral.prepare (preparedSampleRate, preparedBlockSize, preparedChannels);
+    bandMatrix.prepare (preparedSampleRate, preparedBlockSize, preparedChannels);
     latency.prepare (preparedSampleRate);
     meters.prepare (preparedSampleRate);
     analysis.prepare (preparedSampleRate);
@@ -330,14 +333,28 @@ void SideForgeProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::M
             juce::FloatVectorOperations::fill (gainBuffer.getWritePointer (ch), 1.0f, numSamples);
     }
 
-    if (settings.useCurve)
+    // The curve engine also feeds any Band Matrix band set to Curve mode, so it
+    // runs whenever something needs it rather than only in full-range Curve mode.
+    const auto matrixActive = (readRoutingMode (bandMatrixParams) == RoutingMode::BandMatrix);
+    auto matrixWantsCurve = false;
+
+    if (matrixActive)
+        for (int b = 0; b < kMaxMatrixBands; ++b)
+            matrixWantsCurve = matrixWantsCurve
+                            || readEnum<BandProcessorMode> (bandMatrixParams.bands[b].mode) == BandProcessorMode::Curve;
+
+    const float* curveGain = nullptr;
+
+    if (settings.useCurve || matrixWantsCurve)
     {
         curveEngine.setTable (&curveTables.acquire());
         curveEngine.process (numSamples, transport, quartersThisBlock, triggerEvents,
                              curveGainBuffer.getWritePointer (0));
+        curveGain = curveGainBuffer.getReadPointer (0);
+    }
 
-        const auto* curveGain = curveGainBuffer.getReadPointer (0);
-
+    if (settings.useCurve && curveGain != nullptr)
+    {
         for (int ch = 0; ch < mainChannels; ++ch)
         {
             auto* g = gainBuffer.getWritePointer (ch);
@@ -359,35 +376,93 @@ void SideForgeProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::M
         }
     }
 
-    // ---- latency ------------------------------------------------------------
-    const auto totalLatency = latency.update (settings.lookaheadMs, settings.quality,
-                                              settings.spectralActive);
-    const auto lookaheadSamples = latency.getLookaheadSamples();
+    // ---- routing: Full Range, or the Band Matrix ---------------------------
+    int totalLatency = 0;
 
-    lookaheadDelay.setDelay (lookaheadSamples);
-    scDelay.setDelay (lookaheadSamples);
-    dryDelay.setDelay (totalLatency);
-
-    lookaheadDelay.process (wetBuffer, numSamples);
-
-    // ---- broadband stage ----------------------------------------------------
-    multiband.process (wetBuffer, gainBuffer, mainChannels, numSamples);
-
-    // ---- spectral stage -----------------------------------------------------
-    if (settings.spectralActive)
+    if (matrixActive)
     {
-        // The audio has been delayed by the lookahead, so the sidechain the
-        // collision map sees has to be delayed by the same amount to stay aligned.
-        const auto& filtered = detector.getFiltered();
+        // The matrix does its own splitting, detection, dynamics and latency
+        // alignment, so the full-range broadband and spectral stages sit this
+        // one out entirely.
+        const auto cfg = qualityConfig (settings.quality);
+        const auto depthScale = readBool (params.macrosEnabled)
+                                    ? juce::jlimit (0.0f, 2.0f, readFloat (params.macroDepth) / 50.0f)
+                                    : 1.0f;
+
+        // The global Timing macro has already been folded into the full-range
+        // compressor times, so its effect is recovered as a ratio and applied to
+        // the band times too. One macro, both routes.
+        const auto timingScale = settings.comp.releaseMs
+                                     / juce::jmax (1.0e-3f, readFloat (params.compRelease));
+
+        auto matrixSettings = buildBandMatrixSettings (bandMatrixParams, settings.spectral,
+                                                       cfg.fftOrder, cfg.overlap,
+                                                       depthScale, timingScale);
+        bandMatrix.setSettings (matrixSettings);
+
+        // Gain-staged but not filtered: each band owns its own detector filter,
+        // and filtering here as well would apply it twice.
+        const auto scGain = juce::Decibels::decibelsToGain (settings.scGainDb);
 
         for (int ch = 0; ch < kMaxChannels; ++ch)
-            scAligned.copyFrom (ch, 0, filtered, juce::jmin (ch, filtered.getNumChannels() - 1),
-                                0, numSamples);
+        {
+            const auto* src = scBuffer.getReadPointer (ch);
+            auto* dst = scMatrix.getWritePointer (ch);
 
-        scDelay.process (scAligned, numSamples);
-        spectral.process (wetBuffer, scAligned, mainChannels, numSamples);
+            for (int i = 0; i < numSamples; ++i)
+                dst[i] = src[i] * scGain;
+        }
+
+        bandMatrix.process (wetBuffer, scMatrix, curveGain, mainChannels, numSamples);
+
+        totalLatency = latency.updateExplicit (bandMatrix.getLatencySamples());
+
+        // The full-range lookahead line is idle here; zeroing it means switching
+        // back does not replay whatever it was holding.
+        lookaheadDelay.setDelay (0);
+        scDelay.setDelay (0);
+
+        // The visualiser draws one gain trace; in matrix mode that is the deepest
+        // reduction anywhere in the matrix.
+        for (int ch = 0; ch < mainChannels; ++ch)
+            juce::FloatVectorOperations::fill (gainBuffer.getWritePointer (ch),
+                                               bandMatrix.getLastMinGain(), numSamples);
+    }
+    else
+    {
+        // ---- latency --------------------------------------------------------
+        totalLatency = latency.update (settings.lookaheadMs, settings.quality,
+                                       settings.spectralActive);
+        const auto lookaheadSamples = latency.getLookaheadSamples();
+
+        lookaheadDelay.setDelay (lookaheadSamples);
+        scDelay.setDelay (lookaheadSamples);
+
+        lookaheadDelay.process (wetBuffer, numSamples);
+
+        // ---- broadband stage ------------------------------------------------
+        multiband.process (wetBuffer, gainBuffer, mainChannels, numSamples);
+
+        // ---- spectral stage -------------------------------------------------
+        if (settings.spectralActive)
+        {
+            // The audio has been delayed by the lookahead, so the sidechain the
+            // collision map sees has to be delayed by the same amount to stay
+            // aligned.
+            const auto& filtered = detector.getFiltered();
+
+            for (int ch = 0; ch < kMaxChannels; ++ch)
+                scAligned.copyFrom (ch, 0, filtered,
+                                    juce::jmin (ch, filtered.getNumChannels() - 1), 0, numSamples);
+
+            scDelay.process (scAligned, numSamples);
+            spectral.process (wetBuffer, scAligned, mainChannels, numSamples);
+        }
     }
 
+    // The dry path is delayed by whatever the active route reported, so mix,
+    // bypass and delta stay sample-aligned in both modes.
+    dryDelay.setDelay (totalLatency);
     dryDelay.process (dryBuffer, numSamples);
 
     // ---- monitoring ---------------------------------------------------------
@@ -459,9 +534,11 @@ void SideForgeProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::M
         meters.output[juce::jmin (ch, MeterBank::kChannels - 1)]
             .processBlock (buffer.getReadPointer (ch), numSamples);
 
-    const auto minGain = settings.spectralActive
-                             ? juce::jmin (multiband.getLastMinGain(), spectral.getLastMinGain())
-                             : multiband.getLastMinGain();
+    const auto minGain = matrixActive
+                             ? bandMatrix.getLastMinGain()
+                             : (settings.spectralActive
+                                    ? juce::jmin (multiband.getLastMinGain(), spectral.getLastMinGain())
+                                    : multiband.getLastMinGain());
     meters.gainReduction.pushBlock (minGain, numSamples);
 
     // Nothing is watching during an offline bounce, so the analysis bus is not

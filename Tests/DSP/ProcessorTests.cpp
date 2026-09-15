@@ -864,7 +864,11 @@ SF_TEST (processor_worksIdenticallyWithTheEditorOpenAndClosed)
 
 SF_TEST (processor_everyFactoryPresetLoadsAndProcesses)
 {
-    SF_CHECK (sf::FactoryPresets::getNumPresets() == 8);
+    // Not a fixed count: presets get added. What matters is that they all exist,
+    // are named, and produce finite audio.
+    SF_CHECK_MSG (sf::FactoryPresets::getNumPresets() >= 8,
+                  "the original eight factory presets must still be there");
+    SF_CHECK (sf::FactoryPresets::getNames().size() == sf::FactoryPresets::getNumPresets());
 
     for (int i = 0; i < sf::FactoryPresets::getNumPresets(); ++i)
     {

@@ -27,6 +27,7 @@ add_subdirectory(JUCE)
 set(SIDEFORGE_CORE_SOURCES
     Source/Parameters/ParameterLayout.cpp
     Source/Parameters/MacroMapping.cpp
+    Source/Parameters/BandMatrixParameters.cpp
     Source/Model/CurveModel.cpp
     Source/Model/PresetState.cpp
     Source/Model/FactoryPresets.cpp
@@ -36,6 +37,8 @@ set(SIDEFORGE_CORE_SOURCES
     Source/DSP/TriggerEngine.cpp
     Source/DSP/MultibandProcessor.cpp
     Source/DSP/SpectralDucker.cpp
+    Source/DSP/BandProcessor.cpp
+    Source/DSP/BandMatrix.cpp
     Source/Parameters/MidiLearn.cpp
 )
 

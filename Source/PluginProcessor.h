@@ -3,6 +3,8 @@
 #include "Parameters/ParameterLayout.h"
 #include "Parameters/MacroMapping.h"
 #include "Parameters/MidiLearn.h"
+#include "Parameters/BandMatrixParameters.h"
+#include "DSP/BandMatrix.h"
 #include "Model/CurveModel.h"
 #include "Model/PresetState.h"
 #include "DSP/AnalysisBus.h"
@@ -77,6 +79,11 @@ public:
     CurveEngine&     getCurveEngine() noexcept     { return curveEngine; }
     TriggerEngine&   getTriggerEngine() noexcept   { return triggerEngine; }
     MultibandProcessor& getMultiband() noexcept    { return multiband; }
+    BandMatrix&      getBandMatrix() noexcept      { return bandMatrix; }
+    BandMatrixParamRefs& getBandMatrixParams() noexcept { return bandMatrixParams; }
+
+    /** Which of the two top-level signal paths is running. */
+    RoutingMode getRoutingMode() const noexcept { return readRoutingMode (bandMatrixParams); }
 
     /** Current reported latency, for the UI's routing panel. */
     int getReportedLatencySamples() const noexcept { return latency.getTotalSamples(); }
@@ -109,6 +116,7 @@ private:
     juce::UndoManager undoManager;
     juce::AudioProcessorValueTreeState apvts;
     ParamRefs   params;
+    BandMatrixParamRefs bandMatrixParams;
     CurveModel  curveModel;
     CurveTableExchange curveTables;
     EditorState editorState;
@@ -122,6 +130,7 @@ private:
     TriggerEngine      triggerEngine;
     MultibandProcessor multiband;
     SpectralDucker     spectral;
+    BandMatrix         bandMatrix;
     LatencyManager     latency;
     MeterBank          meters;
     AnalysisBus        analysis;
@@ -137,6 +146,7 @@ private:
     juce::AudioBuffer<float> gainBuffer;      // broadband gain, per channel
     juce::AudioBuffer<float> curveGainBuffer; // single-channel curve envelope
     juce::AudioBuffer<float> scAligned;       // filtered sidechain, lookahead-aligned
+    juce::AudioBuffer<float> scMatrix;        // sidechain for the Band Matrix, gain-staged only
 
     ParamSmoother inputGain, outputGain, mixAmount, makeupGain;
     CrossfadeRamp bypassFade;

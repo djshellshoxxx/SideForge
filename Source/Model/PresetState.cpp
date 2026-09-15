@@ -68,10 +68,25 @@ void migrate (juce::ValueTree& state)
     auto version = (int) state.getProperty (versionProp, 0);
 
     // Version 0 = pre-release trees written before the wrapper existed. They are
-    // handled by the caller (which wraps a bare APVTS tree), so there is nothing
-    // to do here yet. Future migrations chain from here:
+    // handled by the caller, which wraps a bare APVTS tree.
+
+    if (version < 2)
+    {
+        // The Band Matrix arrived in version 2. Its parameters are all new, so a
+        // version-1 tree has no entries for them and the APVTS leaves them at
+        // their defaults: Routing = Full Range, which is exactly the behaviour
+        // the session was saved with. There is deliberately nothing to rewrite —
+        // the guarantee is that the old path is untouched, not migrated.
+        //
+        // Anything that *is* present is still validated: `sanitiseParameters`
+        // drops non-finite values, the APVTS clamps each one to its own range,
+        // and the crossover network orders and spaces whatever it is handed.
+        version = 2;
+    }
+
+    // Future migrations chain from here:
     //
-    //   if (version < 2) { ...rewrite...; version = 2; }
+    //   if (version < 3) { ...rewrite...; version = 3; }
 
     if (version < kStateVersion)
         version = kStateVersion;

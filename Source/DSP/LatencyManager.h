@@ -80,6 +80,24 @@ public:
         return sum;
     }
 
+    /** Band Matrix mode computes its own total across the bands, so it sets the
+        value directly rather than going through the lookahead/spectral split. */
+    int updateExplicit (int totalSamples) noexcept
+    {
+        const auto clamped = juce::jmax (0, totalSamples);
+
+        lookahead = clamped;
+        spectral = 0;
+
+        if (clamped != total.load (std::memory_order_relaxed))
+        {
+            total.store (clamped, std::memory_order_relaxed);
+            changed.store (true, std::memory_order_release);
+        }
+
+        return clamped;
+    }
+
     int getLookaheadSamples() const noexcept { return lookahead; }
     int getSpectralSamples() const noexcept  { return spectral; }
     int getTotalSamples() const noexcept     { return total.load (std::memory_order_relaxed); }

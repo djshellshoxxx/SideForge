@@ -1,4 +1,5 @@
 #include "ParameterLayout.h"
+#include "BandMatrixParameters.h"
 #include "Divisions.h"
 
 namespace sf
@@ -179,6 +180,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add (std::make_unique<Group> ("visual", "Visualisation", "|",
         bp (pid::vizEnabled, "Visualiser On", true),
         bp (pid::vizReduced, "Reduced Animation", false)));
+
+    // Everything the Band Matrix adds lives in its own file; it is all new, so
+    // nothing above this line changed and a version-1 session still restores
+    // exactly as it did.
+    addBandMatrixParameters (layout);
 
     return layout;
 }
