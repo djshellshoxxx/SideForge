@@ -43,7 +43,8 @@ private:
     the right-click menu — so every parameter can be dialled in numerically as
     well as by ear.
 */
-class SFKnob : public juce::Component
+class SFKnob : public juce::Component,
+               public juce::SettableTooltipClient
 {
 public:
     SFKnob (const ControlContext&, const juce::String& parameterID,
@@ -84,7 +85,8 @@ private:
 };
 
 /** A labelled combo box bound to a choice parameter. */
-class SFChoice : public juce::Component
+class SFChoice : public juce::Component,
+               public juce::SettableTooltipClient
 {
 public:
     SFChoice (const ControlContext&, const juce::String& parameterID,
@@ -125,7 +127,8 @@ private:
 };
 
 /** A toggle bound to a bool parameter, drawn as a filled pill when on. */
-class SFToggle : public juce::Component
+class SFToggle : public juce::Component,
+               public juce::SettableTooltipClient
 {
 public:
     SFToggle (const ControlContext&, const juce::String& parameterID,
@@ -176,7 +179,8 @@ class SFSegmentedControl : public juce::Component,
 {
 public:
     SFSegmentedControl (const ControlContext&, const juce::String& parameterID,
-                        juce::Colour activeColour = theme::accent);
+                        juce::Colour activeColour = theme::accent,
+                        const juce::String& tooltip = {});
     ~SFSegmentedControl() override;
 
     void paint (juce::Graphics&) override;
@@ -204,6 +208,7 @@ private:
     juce::StringArray options;
     std::vector<bool> optionEnabled;
     std::vector<juce::String> disabledTooltips;
+    juce::String baseTooltip;
     int hoverIndex = -1;
     int shownIndex = -1;
 

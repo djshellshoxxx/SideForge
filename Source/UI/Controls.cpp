@@ -13,8 +13,22 @@ juce::String nameOf (juce::RangedAudioParameter* parameter, const juce::String& 
     return parameter != nullptr ? parameter->getName (32) : juce::String ("--");
 }
 
-/** The tooltip every control gets, with the interactions spelled out once. */
-juce::String buildTooltip (juce::RangedAudioParameter* parameter, const juce::String& extra)
+/** How a control is worked. Worth getting right: "Drag to adjust" on a
+    two-state button is worse than saying nothing. */
+enum class ControlKind { Knob, Choice, Toggle, Segmented };
+
+/** The tooltip every control gets:
+
+        <parameter name>
+        <what it does>
+        <how to work it>
+        <right-click>
+
+    All four lines are always present, and `editor_everyControlHasATooltip`
+    counts them - so a control added without a description fails the tests
+    rather than shipping with a tooltip that only repeats its own label. */
+juce::String buildTooltip (juce::RangedAudioParameter* parameter, const juce::String& extra,
+                           ControlKind kind = ControlKind::Knob)
 {
     juce::StringArray lines;
 
@@ -24,7 +38,22 @@ juce::String buildTooltip (juce::RangedAudioParameter* parameter, const juce::St
     if (extra.isNotEmpty())
         lines.add (extra);
 
-    lines.add ("Drag to adjust  -  Shift-drag for fine  -  Double-click to reset");
+    switch (kind)
+    {
+        case ControlKind::Knob:
+            lines.add ("Drag to adjust  -  Shift-drag for fine  -  Double-click to reset");
+            break;
+        case ControlKind::Choice:
+            lines.add ("Click to choose  -  Double-click to reset");
+            break;
+        case ControlKind::Toggle:
+            lines.add ("Click to switch  -  Double-click to reset");
+            break;
+        case ControlKind::Segmented:
+            lines.add ("Click an option to select it");
+            break;
+    }
+
     lines.add ("Right-click for MIDI learn and more");
 
     return lines.joinIntoString ("\n");
@@ -125,6 +154,7 @@ SFKnob::SFKnob (const ControlContext& contextToUse, const juce::String& paramete
     jassert (parameter != nullptr);   // a control with no parameter behind it is a bug
 
     addAndMakeVisible (slider);
+    setTooltip (buildTooltip (parameter, tooltip));
     slider.setTooltip (buildTooltip (parameter, tooltip));
 
     nameLabel.setText (displayName.toUpperCase(), juce::dontSendNotification);
@@ -292,7 +322,8 @@ SFChoice::SFChoice (const ControlContext& contextToUse, const juce::String& para
     addAndMakeVisible (nameLabel);
 
     addAndMakeVisible (box);
-    box.setTooltip (buildTooltip (parameter, tooltip));
+    setTooltip (buildTooltip (parameter, tooltip, ControlKind::Choice));
+    box.setTooltip (buildTooltip (parameter, tooltip, ControlKind::Choice));
 
     // ComboBoxAttachment matches on item index and does not add the items
     // itself, so the choices have to be populated before it is created.
@@ -378,7 +409,8 @@ SFToggle::SFToggle (const ControlContext& contextToUse, const juce::String& para
 
     button.setButtonText (nameOf (parameter, displayNameToUse));
     button.setClickingTogglesState (true);
-    button.setTooltip (buildTooltip (parameter, tooltip));
+    setTooltip (buildTooltip (parameter, tooltip, ControlKind::Toggle));
+    button.setTooltip (buildTooltip (parameter, tooltip, ControlKind::Toggle));
     button.setColour (juce::TextButton::buttonOnColourId, onColour);
     button.setColour (juce::TextButton::textColourOnId, theme::background);
     addAndMakeVisible (button);
@@ -434,7 +466,8 @@ void SFToggle::resized()
 
 SFSegmentedControl::SFSegmentedControl (const ControlContext& contextToUse,
                                         const juce::String& parameterIDToUse,
-                                        juce::Colour activeColourToUse)
+                                        juce::Colour activeColourToUse,
+                                        const juce::String& tooltip)
     : context (contextToUse), parameterID (parameterIDToUse), activeColour (activeColourToUse)
 {
     if (auto* parameter = dynamic_cast<juce::AudioParameterChoice*> (context.getParameter (parameterID)))
@@ -442,6 +475,10 @@ SFSegmentedControl::SFSegmentedControl (const ControlContext& contextToUse,
 
     optionEnabled.assign ((size_t) juce::jmax (1, options.size()), true);
     disabledTooltips.assign ((size_t) juce::jmax (1, options.size()), juce::String());
+
+    baseTooltip = buildTooltip (context.getParameter (parameterID), tooltip,
+                                ControlKind::Segmented);
+    setTooltip (baseTooltip);
 
     setWantsKeyboardFocus (false);
     startTimerHz (20);
@@ -530,10 +567,11 @@ void SFSegmentedControl::mouseMove (const juce::MouseEvent& e)
     {
         hoverIndex = index;
 
-        if (! optionEnabled[(size_t) index] && disabledTooltips[(size_t) index].isNotEmpty())
+        if (index >= 0 && ! optionEnabled[(size_t) index]
+              && disabledTooltips[(size_t) index].isNotEmpty())
             setTooltip (disabledTooltips[(size_t) index]);
         else
-            setTooltip ("Right-click for MIDI learn and more");
+            setTooltip (baseTooltip);
 
         repaint();
     }
@@ -542,6 +580,7 @@ void SFSegmentedControl::mouseMove (const juce::MouseEvent& e)
 void SFSegmentedControl::mouseExit (const juce::MouseEvent&)
 {
     hoverIndex = -1;
+    setTooltip (baseTooltip);
     repaint();
 }
 

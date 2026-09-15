@@ -117,7 +117,9 @@ MainView::~MainView()
 
 void MainView::buildHeader()
 {
-    modeSelector = std::make_unique<SFSegmentedControl> (context, pid::mode);
+    modeSelector = std::make_unique<SFSegmentedControl> (context, pid::mode, theme::accent,
+        "Which engines produce the gain signal: the compressor, the drawn curve, "
+        "the spectral stage, or the compressor and curve together plus spectral");
     modeSelector->onDisabledOptionClicked = [this] (int index)
     {
         // Spectral and Hybrid need an STFT, which Live quality does not run. Rather
@@ -140,7 +142,9 @@ void MainView::buildHeader()
 
     // Full Range or Band Matrix. It sits next to the engine mode because the two
     // together are what decide the signal path.
-    routingSelector = std::make_unique<SFSegmentedControl> (context, pid::routingMode, theme::ok);
+    routingSelector = std::make_unique<SFSegmentedControl> (context, pid::routingMode, theme::ok,
+        "Full Range processes the whole spectrum with one detector. Band Matrix splits it "
+        "into up to four bands, each with its own processor, timing and detector");
     addAndMakeVisible (*routingSelector);
 
     bypassToggle = std::make_unique<SFToggle> (context, pid::bypass, "Bypass",

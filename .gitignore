@@ -5,3 +5,12 @@ JUCE/
 *.user
 *.suo
 CMakeUserPresets.json
+
+# Verification renders. `SideForgeTests --screenshots=<dir>` writes one PNG per
+# page and panel every time it runs; only the handful the README shows are kept.
+Resources/screenshots/*.png
+!Resources/screenshots/waveform.png
+!Resources/screenshots/curve.png
+!Resources/screenshots/spectrum.png
+!Resources/screenshots/bands.png
+!Resources/screenshots/bandmatrix.png

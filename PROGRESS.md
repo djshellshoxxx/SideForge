@@ -2,8 +2,9 @@
 
 ## Current phase
 
-**Phase 7 — presets, compatibility and hardening.** Phases 1 to 6 are complete
-and green.
+**Complete.** All seven phases of the original plugin are done, and so is the
+Band Matrix, which was specified afterwards and ran through the same seven
+phases of its own.
 
 ## Toolchain (verified 2026-09-14)
 
@@ -37,8 +38,12 @@ with it on, the plugin link takes roughly fifteen minutes.
 `SideForge_All` is the target that produces the VST3 and the standalone; the bare
 `SideForge` target only builds the shared code library.
 
-Last run: **122 passed, 0 failed** in both Debug and Release, plus
+Last run: **190 passed, 0 failed** in both Debug and Release, plus
 **25 checks, 0 failures** from `SideForgeValidate`.
+
+The full suite takes about three minutes in Release and rather longer in Debug;
+`--filter=<substring>` runs a subset, and `--screenshots=<dir>` renders every
+page and panel of the interface to PNG instead of running tests.
 
 ## Completed
 
@@ -83,7 +88,8 @@ Last run: **122 passed, 0 failed** in both Debug and Release, plus
 
 ### Phase 6 — Interface and visualisation
 - Full resizable interface: header, four macros, tabbed central display
-  (Waveform / Curve / Spectrum), meter column, seven parameter panels, status footer.
+  (Waveform / Curve / Spectrum / Matrix), meter column, eight parameter panels,
+  status footer.
 - Custom look and feel; colour language shared between the visualiser and the panels.
 - Lock-free visualisation: `AnalysisBus` (SPSC ring of decimated columns) and a
   triple-buffered `SpectralSnapshot`. No UI component reads DSP working state.
@@ -96,7 +102,7 @@ Last run: **122 passed, 0 failed** in both Debug and Release, plus
 - Controls are disabled, not hidden, when the active engine does not use them.
 
 ### Phase 7 — Presets, compatibility, hardening
-- Eight factory presets, exposed as host programs and in the preset menu.
+- 23 factory presets, exposed as host programs and in the preset menu.
 - User preset save / load to `%APPDATA%\SideForge\Presets\*.sideforge`.
 - Icon generated into `Resources/` and wired into the build via `ICON_BIG` / `ICON_SMALL`.
 - README with build, install, routing, operation and troubleshooting sections.
@@ -108,6 +114,49 @@ Last run: **122 passed, 0 failed** in both Debug and Release, plus
   at three sample rates and three block sizes, silence, latency, state round
   trips, malformed state and the editor. This stands in for pluginval, which is
   not installed here.
+
+### The Band Matrix
+
+Specified after the plugin was finished, and built in its own seven phases.
+
+- `LinkwitzRileyCrossover`: 1 to 4 bands from a cascade of LR4 splits, with an
+  allpass on every band that skips a split so the bands recombine flat at any
+  band count. Frequencies are kept ordered and at least 1.25x apart, and glide
+  in the log domain at a rate-limited 12 octaves per second.
+- `BandProcessor`: one band's worth of processing — Off, Ducker, Compressor,
+  Limiter, Curve, Spectral or Listen, each with its own depth, range, timing,
+  gain, pan, mix and makeup, its own detector source and detector filter, and
+  its own lookahead.
+- `BandMatrix`: two crossover networks (destination and sidechain), four band
+  processors, four alignment delays. Every band is padded to the deepest so the
+  recombination stays phase-coherent; solo and mute are resolved at the sum.
+- 107 new parameters, all in state version 2. Nothing existing was renamed or
+  repurposed, so a version-1 session simply has no values for them and loads in
+  Full Range.
+- Display page with three spectra (original, processed, detector), per-band
+  tinted regions that contract by the reduction each band is applying, draggable
+  crossover handles and four band cards with enable / bypass / solo / mute.
+- Matrix panel with routing, band count, crossovers, two matrix macros and the
+  selected band's full control set, greying what the current configuration does
+  not use.
+- 15 Band Matrix factory presets, 23 in total.
+
+### Cross-feature testing
+
+Asked for explicitly: every feature tested against every other feature. An
+exhaustive product of the discrete settings is past 10^11 combinations, so
+`Tests/DSP/CrossFeatureTests.cpp` does **all-pairs** — for every pair of settings
+and every combination of values that pair can take, one run with those two
+pinned and every other parameter randomised. 5402 configurations, plus:
+
+- the cubes the Band Matrix introduced, swept exhaustively;
+- all 256 solo / mute / bypass / enable states across four bands;
+- the same pairs on six host layouts from 44.1 to 192 kHz, block sizes 32 to
+  1024, mono and stereo, with and without a sidechain bus;
+- 3000 blocks with settings moving on every single block.
+
+Each configuration asserts finite output, no runaway level, a plausible reported
+latency, and silence in giving silence out.
 
 ## Bugs the tests caught
 
@@ -146,6 +195,32 @@ which is why `--screenshots=<dir>` is now part of the test runner:
 7. **Every choice control rendered blank.** `ComboBoxAttachment` matches on item
    index and does not populate the box itself.
 
+From the Band Matrix work:
+
+8. **Crossover glide moved the cutoff 1.38x in the first block.** A one-pole on
+   the frequency looks like smoothing and is not: its first step is proportional
+   to the distance, so a large jump is nearly instant. Replaced with an explicit
+   log-domain rate limit, and the test now asserts the guaranteed bound the
+   class states rather than a tolerance someone picked.
+9. **The screenshot renderer overflowed the stack.** The processor is about
+   2.5 MB once four bands each preallocate a worst-case FFT, and it was a local.
+   Heap-allocated.
+
+From the cross-feature sweep:
+
+10. **Mix and auto makeup were applied to the monitoring paths.** Auditioning the
+    sidechain at 50% Mix handed back half the sidechain blended with half the
+    user's own track, and auto gain then scaled that by whatever makeup the
+    compressor wanted — a +23 dB audition in the configuration that failed.
+    Both now stand down while any audition or monitor mode is engaged. Four
+    regression tests pin it.
+11. **Most controls had no tooltip of their own.** The tooltip was set on a
+    knob's inner slider and value label, so hovering the name or the padding
+    between them showed nothing, and the segmented controls had none at all
+    until the mouse had already moved across them. `editor_everyControlHasATooltip`
+    now walks the editor and requires four lines from every control: what it is,
+    what it does, how to work it, and the right-click hint.
+
 ## Active problems
 
 - None.
@@ -156,7 +231,11 @@ which is why `--screenshots=<dir>` is now part of the test runner:
    here. In its absence the project has its own `SideForgeValidate` host, which
    loads the built bundle through JUCE's VST3 hosting code.
 2. Test in a host with real sidechain routing (Reaper / Cubase) and confirm the
-   footer's connection indicator matches what the host reports.
+   footer's connection indicator matches what the host reports, and that a
+   Band Matrix session recalls with the right routing.
+3. Listen to the four-band configurations on real material. The tests prove the
+   matrix is correct, phase-coherent and stable; they cannot say whether four
+   bands of ducking is a good idea on a given mix.
 
 ## Known and accounted for
 
@@ -180,6 +259,14 @@ which is why `--screenshots=<dir>` is now part of the test runner:
   latency-matched instead. No control is exposed for it.
 - **Double-precision processing.** Not advertised and not implemented; the
   `double` overload asserts and is never called.
+- **More than four matrix bands.** Four covers sub / low / mid / high, which is
+  the split people actually reach for, and each band is a full processing chain.
+  `kMaxMatrixBands` is the single constant that would have to change, but the
+  parameter IDs and the band cards are sized from it deliberately rather than
+  generated, so adding a fifth is a decision, not a constant bump.
+- **Per-band crossover slopes.** LR4 throughout. Mixed slopes would break the
+  allpass correction that makes the bands recombine flat, which is a larger
+  change than it sounds.
 
 ## Architectural decisions
 

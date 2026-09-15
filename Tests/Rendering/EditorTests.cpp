@@ -29,6 +29,32 @@ void collectBoundParameters (juce::Component& component, std::set<juce::String>&
             collectBoundParameters (*child, found);
 }
 
+/** Every parameter control in the tree, with the tooltip it offers. */
+void collectTooltips (juce::Component& component,
+                      std::vector<std::pair<juce::String, juce::String>>& found)
+{
+    juce::String id;
+
+    if (auto* knob = dynamic_cast<sf::SFKnob*> (&component))
+        id = knob->getParameterID();
+    else if (auto* choice = dynamic_cast<sf::SFChoice*> (&component))
+        id = choice->getParameterID();
+    else if (auto* toggle = dynamic_cast<sf::SFToggle*> (&component))
+        id = toggle->getParameterID();
+    else if (auto* segmented = dynamic_cast<sf::SFSegmentedControl*> (&component))
+        id = segmented->getParameterID();
+
+    if (id.isNotEmpty())
+    {
+        auto* client = dynamic_cast<juce::TooltipClient*> (&component);
+        found.push_back ({ id, client != nullptr ? client->getTooltip() : juce::String() });
+    }
+
+    for (auto* child : component.getChildren())
+        if (child != nullptr)
+            collectTooltips (*child, found);
+}
+
 /** Renders the editor into an offscreen image, which exercises every paint path. */
 void renderEditor (juce::AudioProcessorEditor& editor)
 {
@@ -90,6 +116,41 @@ SF_TEST (editor_everyControlPointsAtARealParameter)
     for (const auto& id : bound)
         SF_CHECK_MSG (p->getAPVTS().getParameter (id) != nullptr,
                       ("control bound to a parameter that does not exist: " + id.toStdString()).c_str());
+}
+
+
+SF_TEST (editor_everyControlHasATooltip)
+{
+    auto p = makeProcessor();
+    auto editor = openEditor (*p);
+
+    std::vector<std::pair<juce::String, juce::String>> controls;
+    collectTooltips (*editor, controls);
+
+    SF_CHECK_MSG (controls.size() > 150,
+                  ("only " + std::to_string (controls.size())
+                   + " parameter controls were found in the editor").c_str());
+
+    juce::StringArray missing, tooShort;
+
+    for (const auto& [id, tip] : controls)
+    {
+        if (tip.trim().isEmpty())
+            missing.addIfNotAlreadyThere (id);
+        else if (juce::StringArray::fromLines (tip).size() < 4)
+            tooShort.addIfNotAlreadyThere (id);
+    }
+
+    SF_CHECK_MSG (missing.isEmpty(),
+                  ("controls with no tooltip: " + missing.joinIntoString (", ").toStdString()).c_str());
+
+    // A tooltip that only restates the control's own label teaches nobody
+    // anything. Every control's tooltip is built as
+    //   <parameter name> / <what it does> / <how to interact> / <right-click>
+    // so fewer than four lines means the description line is missing.
+    SF_CHECK_MSG (tooShort.isEmpty(),
+                  ("controls whose tooltip says nothing beyond their own name: "
+                   + tooShort.joinIntoString (", ").toStdString()).c_str());
 }
 
 // ---------------------------------------------------------------------------

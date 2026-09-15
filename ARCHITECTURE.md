@@ -10,6 +10,14 @@ CMake. It combines four processing concepts behind one model:
 3. **Spectral ducking engine** — STFT collision analysis with per-bin attenuation.
 4. **Multiband / channel matrix** — 1 or 3 bands, stereo-linked / L-R / M-S.
 
+and one of two top-level **routings**:
+
+- **Full Range** — the four engines above over the whole spectrum. This is the
+  original signal path, and it is untouched by everything below.
+- **Band Matrix** — the destination split into 1-4 Linkwitz-Riley bands, each
+  with its own processor, timing and detector source, latency-aligned and
+  recombined.
+
 ## The unifying idea: everything is a gain signal
 
 The compressor and the curve engines both emit a **broadband gain multiplier** in
@@ -62,6 +70,47 @@ main in ──┬──> input gain ──┬──> dry copy ──────
                                                                                    out
 ```
 
+## The Band Matrix
+
+`BandMatrix` owns two `LinkwitzRileyCrossover` networks - one for the
+destination, one for the sidechain - four `BandProcessor`s, and four `DelayLine`
+aligners.
+
+```
+wet ──> destination crossover ──> band[0..n) ──> BandProcessor ──> DelayLine ──┐
+                                      ▲                                        ├──> sum
+sc  ──> sidechain crossover ──────────┘   (detector source select)            ─┘
+```
+
+Three things are worth knowing about how it is put together.
+
+**The crossover is a cascade with allpass correction.** Splitting four ways means
+each band passes through a different number of crossovers, so the bands arrive
+with different phase. Every band that skips a split is run through an allpass at
+that split's frequency instead, which is what makes the four bands sum back flat.
+`CrossoverTests` measures the reconstruction rather than trusting the topology.
+
+**Crossover frequencies glide in the log domain, rate-limited.** A one-pole on
+the frequency looked right and was not: on a large jump it moved the cutoff by a
+factor of 1.38 in the first block, which is audible. The limit is now an explicit
+12 octaves per second, and `maxRatioPerBlock()` states the guaranteed bound so the
+test can assert the real contract instead of a tolerance someone picked.
+
+**Latency is aligned inside the matrix, not outside it.** Each `BandProcessor`
+reports `lookahead + (Spectral ? one STFT frame : 0)`, the matrix pads every band
+up to the deepest, and the processor reports that total. Summing bands that are
+not aligned would comb-filter the recombination, and it would do it silently.
+
+Detector routing is per band and resolved in `detectorSourceFor()`: the full
+sidechain, the matching band of the sidechain, the full destination, or the
+matching band of the destination - each optionally through that band's own
+detector high-pass and low-pass.
+
+Solo and mute are resolved at recombination, not in the band processors, so
+`heard = anySolo ? solo[b] : !mute[b]` is evaluated once per band per block and a
+soloed band still runs its processor (and so its meters and envelopes stay live
+rather than jumping when you un-solo).
+
 ## Threading and real-time rules
 
 - `processBlock` never allocates, locks, logs, reads a file, resizes a container
@@ -84,8 +133,13 @@ main in ──┬──> input gain ──┬──> dry copy ──────
 `LatencyManager` owns the single source of truth:
 
 ```
-latency = lookaheadSamples + spectralLatencySamples
+Full Range   latency = lookaheadSamples + spectralLatencySamples
+Band Matrix  latency = max over bands of (band lookahead + band spectral)
 ```
+
+`LatencyManager::updateExplicit` is how the Band Matrix path reports its figure:
+the matrix has already worked out its own alignment, so it hands over a total
+rather than the two components.
 
 The dry path is delayed by the same amount, so mix and bypass stay
 phase-coherent and bypass is sample-exact.
@@ -154,13 +208,21 @@ hands everything else to `MainView`.
 
 - `Source/Parameters/` — parameter IDs, ranges, APVTS layout, macro mapping, MIDI learn.
 - `Source/DSP/` — all audio processing; no JUCE GUI includes.
+  `LinkwitzRileyCrossover.h`, `BandProcessor.*` and `BandMatrix.*` are the Band
+  Matrix; they depend on the existing engines rather than duplicating them, so a
+  band in Compressor mode is the same `CompressorEngine` the full-range path uses.
 - `Source/Model/` — curve model, preset/state serialisation, factory presets.
 - `Source/UI/` — all rendering; reads snapshots produced by the audio thread.
-  The seven lower panels live in one `Panels.cpp` rather than a `Panels/`
+  The lower panels live in one `Panels.cpp` rather than a `Panels/`
   directory: each is a constructor listing its controls plus a short relevance
-  rule, and seven pairs of ten-line files would be harder to read, not easier.
+  rule, and a pair of ten-line files each would be harder to read, not easier.
+  `BandMatrixPanel` is the exception and has its own file: it is the only panel
+  that holds four bands' worth of controls and shows one of them.
 - `Source/Utilities/` — lock-free primitives and smoothing helpers.
 - `Tests/` — a console runner that links the same core and UI sources as the plugin.
+  `Tests/DSP/CrossFeatureTests.cpp` is the all-pairs sweep: for every pair of
+  discrete settings and every combination of values that pair can take, one run
+  with those two pinned and everything else randomised.
 
 ## Architectural decisions
 
@@ -181,3 +243,8 @@ hands everything else to `MainView`.
 | 13 | MIDI learn is applied on a timer, not in `processBlock` | `setValueNotifyingHost` is not real-time safe. The audio thread only records controller values into atomics. |
 | 14 | Macros are modulation over real parameters | Nothing in the UI is a dead end, and A/B and session recall stay exact. |
 | 15 | Auto makeup is capped at +24 dB | Past that the user wants the output trim, not an automatic 40 dB boost from an extreme threshold/ratio pair. |
+| 16 | Band Matrix is a **routing switch**, not a replacement | Full Range had to stay bit-for-bit identical, and a test asserts it: moving all 107 matrix parameters leaves the Full Range output sample-identical. Users with existing sessions lose nothing. |
+| 17 | Band solo / mute / Listen are non-automatable | A soloed band recalled from an automation lane six months later is a bug. They are still saved with the session, like the editor size. |
+| 18 | The Band Matrix display runs its own FFT on the **message thread** | The matrix does not compute a spectrum as part of processing the way the spectral stage does, so the display would have had to add one to `processBlock`. Instead the audio thread pushes raw samples into `AnalysisBus::RawTap` (three stores per sample) and the GUI transforms them, only while that page is on screen. |
+| 19 | Per-band enum is `BandProcessorMode`, not `BandMode` | `BandMode` already meant "1 band or 3 bands" in the multiband stage. Two different meanings for one name in one namespace is how a wrong-enum bug gets written. |
+| 20 | Monitoring modes suspend Mix and auto makeup | An audition replaces the signal rather than processing it, so blending it back with the dry track or scaling it by compressor makeup is never what was asked for. Found by the cross-feature sweep as a +23 dB sidechain audition. |
