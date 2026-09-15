@@ -947,3 +947,159 @@ SF_TEST (processor_exposesABypassParameterToTheHost)
     auto* withID = dynamic_cast<juce::AudioProcessorParameterWithID*> (bypass);
     SF_CHECK (withID != nullptr && withID->paramID == sf::pid::bypass);
 }
+
+// ---------------------------------------------------------------------------
+//  Monitoring modes replace the signal; Mix and auto makeup must stand down
+//
+//  Found by the cross-feature sweep: with Mix at 50% and auto gain on, listening
+//  to the sidechain gave you half your own track blended in and scaled by the
+//  compressor's makeup. Auditioning something has to give you that thing.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+/** Runs a monitoring configuration and returns the settled output of channel 0. */
+std::vector<float> monitorOutput (sf::SideForgeProcessor& p, int blocks = 60, int block = 256)
+{
+    juce::AudioBuffer<float> buffer { p.getTotalNumInputChannels(), block };
+    juce::MidiBuffer midi;
+    std::vector<float> tail;
+
+    for (int b = 0; b < blocks; ++b)
+    {
+        buffer.clear();
+
+        // A steady tone on the main bus, a different steady tone on the sidechain,
+        // so the two are told apart by level alone.
+        fillSine (buffer, 0, 300.0, 48000.0, 0.5f, 2.0 * sft::kPi * 300.0 * b * block / 48000.0);
+        fillSine (buffer, 1, 300.0, 48000.0, 0.5f, 2.0 * sft::kPi * 300.0 * b * block / 48000.0);
+        fillSine (buffer, 2, 900.0, 48000.0, 0.2f, 2.0 * sft::kPi * 900.0 * b * block / 48000.0);
+        fillSine (buffer, 3, 900.0, 48000.0, 0.2f, 2.0 * sft::kPi * 900.0 * b * block / 48000.0);
+
+        p.processBlock (buffer, midi);
+
+        if (b >= blocks - 4)
+            for (int i = 0; i < block; ++i)
+                tail.push_back (buffer.getReadPointer (0)[i]);
+    }
+
+    return tail;
+}
+
+float peakOf (const std::vector<float>& samples)
+{
+    auto peak = 0.0f;
+
+    for (const auto v : samples)
+        peak = juce::jmax (peak, std::abs (v));
+
+    return peak;
+}
+} // namespace
+
+SF_TEST (monitoring_sidechainListenIgnoresMix)
+{
+    // The same audition at three Mix settings has to sound identical, because
+    // Mix has nothing to blend when you are listening to the sidechain.
+    std::vector<float> reference;
+
+    for (const float mix : { 0.0f, 50.0f, 100.0f })
+    {
+        auto p = makeProcessor();
+        setParam (*p, sf::pid::monitor, (float) sf::Monitor::SidechainListen);
+        setParam (*p, sf::pid::mix, mix);
+
+        const auto heard = monitorOutput (*p);
+
+        // 0.2 is the sidechain amplitude; 0.5 is the main bus. Hearing anything
+        // near 0.5 means the track leaked in.
+        SF_CHECK_MSG (peakOf (heard) < 0.3f,
+                      ("the main bus leaked into the sidechain audition at mix " + num (mix)
+                       + ", peak " + num (peakOf (heard))).c_str());
+
+        if (reference.empty())
+            reference = heard;
+        else
+            for (size_t i = 0; i < heard.size(); ++i)
+                SF_CHECK_MSG (std::abs (heard[i] - reference[i]) < 1.0e-5f,
+                              ("Mix changed the sidechain audition at " + num (mix)).c_str());
+    }
+}
+
+SF_TEST (monitoring_sidechainListenIgnoresAutoGain)
+{
+    auto plain = makeProcessor();
+    setParam (*plain, sf::pid::monitor, (float) sf::Monitor::SidechainListen);
+    setParam (*plain, sf::pid::autoGain, 0.0f);
+
+    auto boosted = makeProcessor();
+    setParam (*boosted, sf::pid::monitor, (float) sf::Monitor::SidechainListen);
+    setParam (*boosted, sf::pid::autoGain, 1.0f);
+
+    // A configuration that asks for a lot of makeup: deep threshold, high ratio.
+    for (auto* p : { plain.get(), boosted.get() })
+    {
+        setParam (*p, sf::pid::mode, (float) sf::Mode::Compress);
+        setParam (*p, sf::pid::compThreshold, -48.0f);
+        setParam (*p, sf::pid::compRatio, 12.0f);
+    }
+
+    const auto without = monitorOutput (*plain);
+    const auto with = monitorOutput (*boosted);
+
+    SF_CHECK (without.size() == with.size());
+
+    for (size_t i = 0; i < with.size(); ++i)
+        SF_CHECK_MSG (std::abs (with[i] - without[i]) < 1.0e-5f,
+                      ("auto gain scaled the sidechain audition, " + num (with[i]) + " vs "
+                       + num (without[i])).c_str());
+}
+
+SF_TEST (monitoring_auditionsStayWithinASaneLevel)
+{
+    // The sweep's actual failure: a +23 dB sidechain audition. Whatever the
+    // compressor wants, an audition is the signal you asked to hear.
+    for (const auto monitorMode : { sf::Monitor::SidechainListen, sf::Monitor::Delta })
+    {
+        for (const float audition : { 0.0f, 1.0f })
+        {
+            auto p = makeProcessor();
+            setParam (*p, sf::pid::monitor, (float) monitorMode);
+            setParam (*p, sf::pid::scAudition, audition);
+            setParam (*p, sf::pid::autoGain, 1.0f);
+            setParam (*p, sf::pid::compThreshold, -48.0f);
+            setParam (*p, sf::pid::compRatio, 12.0f);
+
+            const auto heard = monitorOutput (*p);
+
+            SF_CHECK_MSG (peakOf (heard) < 1.0f,
+                          ("monitor mode " + std::to_string ((int) monitorMode)
+                           + " audition " + num (audition) + " reached "
+                           + num (peakOf (heard))).c_str());
+        }
+    }
+}
+
+SF_TEST (monitoring_normalPlaybackStillRespectsMixAndAutoGain)
+{
+    // The guard above must not have switched Mix off for everybody.
+    auto dry = makeProcessor();
+    setParam (*dry, sf::pid::mode, (float) sf::Mode::Compress);
+    setParam (*dry, sf::pid::compThreshold, -60.0f);
+    setParam (*dry, sf::pid::compRatio, 20.0f);
+    setParam (*dry, sf::pid::mix, 0.0f);
+
+    auto wet = makeProcessor();
+    setParam (*wet, sf::pid::mode, (float) sf::Mode::Compress);
+    setParam (*wet, sf::pid::compThreshold, -60.0f);
+    setParam (*wet, sf::pid::compRatio, 20.0f);
+    setParam (*wet, sf::pid::mix, 100.0f);
+
+    const auto atZero = peakOf (monitorOutput (*dry));
+    const auto atFull = peakOf (monitorOutput (*wet));
+
+    SF_CHECK_MSG (atZero > atFull * 1.5f,
+                  ("Mix stopped working in normal playback: " + num (atZero) + " at 0% vs "
+                   + num (atFull) + " at 100%").c_str());
+    SF_CHECK_NEAR (atZero, 0.5f, 0.02f);
+}

@@ -500,10 +500,20 @@ void SideForgeProcessor::processChunk (juce::AudioBuffer<float>& buffer, juce::M
     }
 
     // ---- auto gain, mix, output gain, bypass --------------------------------
-    const auto makeupTarget = (settings.autoGain && settings.useCompressor)
+    // A monitoring mode replaces the signal outright rather than processing it,
+    // so Mix and auto makeup have to stand down while one is engaged. Otherwise
+    // auditioning the sidechain at 50% Mix hands you half the sidechain and half
+    // your own track, and auto gain scales that audition by however much makeup
+    // the compressor happens to want - which is how this was found, as a +23 dB
+    // sidechain audition in the cross-feature sweep.
+    const auto monitoring = settings.trigAudition
+                                || settings.scAudition
+                                || settings.monitor != Monitor::Normal;
+
+    const auto makeupTarget = (! monitoring && settings.autoGain && settings.useCompressor)
                                   ? compressor.computeAutoMakeupGain() : 1.0f;
     makeupGain.setTarget (makeupTarget);
-    mixAmount.setTarget (settings.mixUnit);
+    mixAmount.setTarget (monitoring ? 1.0f : settings.mixUnit);
     outputGain.setTarget (juce::Decibels::decibelsToGain (settings.outputGainDb));
     bypassFade.setActive (! settings.bypass);
 
