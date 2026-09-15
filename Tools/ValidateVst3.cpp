@@ -121,6 +121,34 @@ bool allFinite (const juce::AudioBuffer<float>& buffer)
     return true;
 }
 
+/** Finds a hosted parameter by its display name.
+
+    A plugin loaded through the VST3 host API does not expose the APVTS string
+    IDs - the host sees names and indices - so this is how the validator reaches
+    a specific control from outside the plugin, the same way a DAW would. */
+juce::AudioProcessorParameter* parameterNamed (juce::AudioPluginInstance& instance,
+                                               const juce::String& name)
+{
+    for (auto* parameter : instance.getParameters())
+        if (parameter->getName (64).equalsIgnoreCase (name))
+            return parameter;
+
+    return nullptr;
+}
+
+/** Sets a hosted parameter by name. Returns false if the host cannot see it. */
+bool setParameterNamed (juce::AudioPluginInstance& instance, const juce::String& name,
+                        float normalised)
+{
+    if (auto* parameter = parameterNamed (instance, name))
+    {
+        parameter->setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, normalised));
+        return true;
+    }
+
+    return false;
+}
+
 void fillTestSignal (juce::AudioBuffer<float>& buffer, int mainChannels, int scChannels,
                      double sampleRate, int offset)
 {
@@ -314,6 +342,137 @@ int main (int argc, char** argv)
         }
 
         check (silent, "silence in gives silence out");
+    }
+
+    // ---- the Band Matrix, driven the way a host would ------------------------
+    //
+    // Everything above runs in Full Range, because that is the default. The
+    // feature a DAW is most likely to be left in has to be exercised through the
+    // hosting layer too, not only in the unit tests, because the routing switch
+    // changes the signal path and the reported latency.
+    section ("Band Matrix");
+
+    {
+        const auto foundRouting = setParameterNamed (*instance, "Routing", 1.0f);
+        check (foundRouting, "the host can see and set the Routing parameter");
+
+        check (setParameterNamed (*instance, "Matrix Bands", 1.0f),
+               "the host can see and set the band count");
+
+        // Every band ducking, so all four processing chains are live at once.
+        auto foundEveryBand = true;
+
+        for (int band = 1; band <= 4; ++band)
+        {
+            const auto label = "Band " + juce::String (band) + " ";
+
+            foundEveryBand &= setParameterNamed (*instance, label + "Mode", 1.0f / 6.0f);
+            foundEveryBand &= setParameterNamed (*instance, label + "Depth", 1.0f);
+            foundEveryBand &= setParameterNamed (*instance, label + "Enable", 1.0f);
+        }
+
+        check (foundEveryBand, "the host can see and set every band's controls");
+
+        instance->setRateAndBufferSizeDetails (48000.0, 512);
+        instance->prepareToPlay (48000.0, 512);
+
+        juce::AudioBuffer<float> buffer { juce::jmax (instance->getTotalNumInputChannels(),
+                                                      instance->getTotalNumOutputChannels()), 512 };
+        juce::MidiBuffer midi;
+
+        auto finite = true;
+        auto runaway = false;
+
+        for (int block = 0; block < 60; ++block)
+        {
+            fillTestSignal (buffer, instance->getMainBusNumInputChannels(),
+                            stereoSidechain ? 2 : 0, 48000.0, block * 512);
+            instance->processBlock (buffer, midi);
+
+            if (! allFinite (buffer))
+                finite = false;
+
+            for (int ch = 0; ch < instance->getMainBusNumOutputChannels(); ++ch)
+                if (buffer.getMagnitude (ch, 0, 512) > 8.0f)
+                    runaway = true;
+        }
+
+        check (finite, "four ducking bands give finite output");
+        check (! runaway, "four ducking bands never run away");
+
+        std::printf ("  Band Matrix latency: %d samples\n", instance->getLatencySamples());
+        check (instance->getLatencySamples() >= 0, "the matrix reports a sane latency");
+
+        // Back to Full Range, so the state and editor checks below run against
+        // the configuration a fresh instance is actually in.
+        setParameterNamed (*instance, "Routing", 0.0f);
+        instance->prepareToPlay (48000.0, 512);
+    }
+
+    // ---- several instances at once -------------------------------------------
+    //
+    // A session has more than one of these in it. Anything accidentally shared
+    // between instances - a static buffer, a global FFT, a file handle - shows
+    // up here and nowhere else.
+    section ("Multiple instances");
+
+    {
+        juce::OwnedArray<juce::AudioPluginInstance> others;
+        auto createdAll = true;
+
+        for (int i = 0; i < 3; ++i)
+        {
+            juce::String instanceError;
+            auto other = manager.createPluginInstance (description, 48000.0, 512, instanceError);
+
+            if (other == nullptr)
+            {
+                createdAll = false;
+                break;
+            }
+
+            other->setRateAndBufferSizeDetails (48000.0, 512);
+            other->prepareToPlay (48000.0, 512);
+            others.add (other.release());
+        }
+
+        check (createdAll, "three more instances can be created alongside the first");
+
+        auto finite = true;
+
+        if (createdAll)
+        {
+            // Each one configured differently, and interleaved block by block,
+            // which is what a host's audio thread actually does.
+            setParameterNamed (*others[0], "Routing", 1.0f);
+            setParameterNamed (*others[1], "Routing", 0.0f);
+            setParameterNamed (*others[2], "Routing", 1.0f);
+            setParameterNamed (*others[2], "Matrix Bands", 1.0f);
+
+            juce::MidiBuffer midi;
+
+            for (int block = 0; block < 40; ++block)
+            {
+                for (auto* other : others)
+                {
+                    juce::AudioBuffer<float> buffer { juce::jmax (other->getTotalNumInputChannels(),
+                                                                  other->getTotalNumOutputChannels()),
+                                                      512 };
+
+                    fillTestSignal (buffer, other->getMainBusNumInputChannels(), 0, 48000.0,
+                                    block * 512);
+                    other->processBlock (buffer, midi);
+
+                    if (! allFinite (buffer))
+                        finite = false;
+                }
+            }
+        }
+
+        check (finite, "several instances running at once all stay finite");
+
+        for (auto* other : others)
+            other->releaseResources();
     }
 
     // ---- latency ------------------------------------------------------------

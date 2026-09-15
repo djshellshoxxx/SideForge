@@ -615,13 +615,16 @@ position, so check the host is actually sending a playhead. In Free mode the
 cycle is a fixed rate and is not tempo-locked by design.
 
 **The automation list shows thousands of parameters.** SideForge itself has
-about ninety. VST3 has no raw MIDI CC, so JUCE's wrapper publishes 128
+about two hundred, a little over half of them the Band Matrix's. VST3 has no raw
+MIDI CC, so JUCE's wrapper publishes 128
 controllers across 16 channels as parameters in order to receive them — that is
 where the other ~2000 come from, and it is what lets the plugin's MIDI learn
 work at all. They are grouped separately by every host that shows them.
 
 **High CPU.** Render quality runs a 4096-point STFT at 8x overlap. Drop to Studio
-for mixing. **Output → Visualiser → Reduced** halves the repaint rate, and
+for mixing. In Band Matrix routing, each active band is a full processing chain,
+and a band in Spectral mode is its own STFT — so four Spectral bands is four of
+them. Reduce the band count first. **Output → Visualiser → Reduced** halves the repaint rate, and
 turning the visualiser off entirely leaves processing untouched.
 
 **Validation.** The project ships its own VST3 host check, which loads the built
@@ -694,7 +697,14 @@ one run is made with those two pinned and every other parameter randomised —
 
 Each configuration asserts what has to hold whatever is set: the output stays
 finite, the level never runs away, the reported latency is plausible, and silence
-in gives silence out. The sweep has already found one real bug — Mix and auto
+in gives silence out.
+
+Release runs all of it, in about four minutes. A Debug build is roughly thirty
+times slower per sample, so it visits every pair but samples the silence flush -
+the expensive half - one configuration in sixteen. Run Release before believing
+the sweep is green.
+
+The sweep has already found one real bug — Mix and auto
 makeup were being applied to the monitoring paths, so auditioning the sidechain
 at 50% Mix handed you half your own track at +23 dB.
 

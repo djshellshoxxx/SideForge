@@ -39,7 +39,14 @@ with it on, the plugin link takes roughly fifteen minutes.
 `SideForge` target only builds the shared code library.
 
 Last run: **190 passed, 0 failed** in both Debug and Release, plus
-**25 checks, 0 failures** from `SideForgeValidate`.
+**33 checks, 0 failures** from `SideForgeValidate` - which now also drives the
+Band Matrix through the real VST3 hosting layer and runs four instances at once.
+
+The cross-feature sweep is scaled by build. Release runs all of it: every pair,
+with the silence invariant checked on every configuration. A Debug build is about
+thirty times slower per sample, which would put the same sweep past an hour, so
+Debug visits every pair but samples the silence flush - the expensive half - one
+configuration in sixteen. A green Debug run is not a substitute for Release.
 
 The full suite takes about three minutes in Release and rather longer in Debug;
 `--filter=<substring>` runs a subset, and `--screenshots=<dir>` renders every
@@ -112,8 +119,10 @@ page and panel of the interface to PNG instead of running tests.
 - `SideForgeValidate`: a small JUCE-based VST3 host that loads the built bundle
   the way a DAW would and checks scanning, instantiation, bus layouts, processing
   at three sample rates and three block sizes, silence, latency, state round
-  trips, malformed state and the editor. This stands in for pluginval, which is
-  not installed here.
+  trips, malformed state, the editor, **the Band Matrix driven by parameter name
+  through the hosting layer**, and **four instances running at once** - which is
+  the only place anything accidentally shared between instances would show up.
+  This stands in for pluginval, which is not installed here.
 
 ### The Band Matrix
 
@@ -239,7 +248,7 @@ From the cross-feature sweep:
 
 ## Known and accounted for
 
-- The VST3 publishes ~2167 parameters. About ninety are SideForge's; the rest
+- The VST3 publishes ~2274 parameters. About two hundred are SideForge's; the rest
   are JUCE's MIDI CC parameters (128 controllers x 16 channels), which is how a
   VST3 receives CC at all, and therefore how the plugin's own MIDI learn works.
   Documented in the README so it does not read as a bug.

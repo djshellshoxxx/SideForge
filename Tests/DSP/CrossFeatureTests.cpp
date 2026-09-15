@@ -37,6 +37,30 @@ namespace
 constexpr int kBlock = 128;
 
 // ---------------------------------------------------------------------------
+//  How much of the sweep runs, by build.
+//
+//  Release runs all of it: every pair, and the silence invariant checked on
+//  every configuration. That takes about two and a half minutes.
+//
+//  A Debug build is roughly thirty times slower per sample, which puts the same
+//  sweep past an hour - and a test that takes an hour is a test nobody runs.
+//  Debug therefore still visits **every pair**, because that is the part that
+//  finds interaction bugs; what it thins out is the silence flush, which is the
+//  expensive half (160+ blocks of settling per configuration against 6 blocks of
+//  signal) and the least likely to be configuration-specific.
+//
+//  So: Debug proves every pair is stable and finite, and spot-checks decay.
+//  Release proves all of it. Do not let a green Debug run stand in for Release.
+// ---------------------------------------------------------------------------
+#if JUCE_DEBUG
+constexpr int kSignalBlocks  = 4;
+constexpr int kSilenceEvery  = 16;
+#else
+constexpr int kSignalBlocks  = 6;
+constexpr int kSilenceEvery  = 1;
+#endif
+
+// ---------------------------------------------------------------------------
 //  Parameters that stay at unity during the sweep.
 //
 //  Gain trims are multiplicative and have their own dedicated tests; letting the
@@ -207,7 +231,7 @@ void fillSignal (juce::AudioBuffer<float>& buffer, int mainChannels, int scChann
 
 /** Runs one configuration and asserts the universal invariants. */
 void exercise (sf::SideForgeProcessor& p, const Configuration& config,
-               int blocks = 6, double sampleRate = 48000.0)
+               int blocks = kSignalBlocks, double sampleRate = 48000.0)
 {
     apply (p, config);
 
@@ -237,6 +261,10 @@ void exercise (sf::SideForgeProcessor& p, const Configuration& config,
     // Silence in, silence out. Everything in the plugin is multiplicative or a
     // filter, so no setting has any business generating signal from nothing -
     // and a config that rings or self-oscillates shows up right here.
+    //
+    // This is the expensive half of the sweep, so a Debug build samples it.
+    if (config.seed % (unsigned) kSilenceEvery != 0)
+        return;
     //
     // The flush has to outlast the reported latency *and* the slowest release
     // the fuzzer can pick, or the delay lines and envelopes would still be
@@ -398,7 +426,7 @@ SF_TEST (cross_bandModesMixedAcrossTheChain)
             }
 
             config.seed = seed++;
-            exercise (*p, config, 12);
+            exercise (*p, config, kSignalBlocks * 2);
         }
     }
 }
@@ -429,7 +457,7 @@ SF_TEST (cross_soloMuteBypassEnableInEveryCombination)
         }
 
         config.seed = seed++;
-        exercise (*p, config, 4);
+        exercise (*p, config, kSignalBlocks);
     }
 }
 
