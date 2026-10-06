@@ -1,3 +1,8 @@
+// SideForge™
+// Copyright © 2026 Sheldon Davidson. All rights reserved.
+// Proprietary source code. See LICENSE and COPYRIGHT-TRADEMARK.md.
+// SPDX-License-Identifier: LicenseRef-Proprietary
+
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 
