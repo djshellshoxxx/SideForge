@@ -66,6 +66,8 @@ private:
     void showPresetMenu();
     void savePresetToFile();
     void loadPresetFromFile();
+    void showHelp();
+    void applyTooltipSetting();
     static juce::File getUserPresetDirectory();
 
     void setActivePanel (int index);
@@ -87,6 +89,11 @@ private:
     std::unique_ptr<SFToggle> bypassToggle;
     juce::TextButton presetButton { "Presets" };
     juce::TextButton slotAButton { "A" }, slotBButton { "B" }, copySlotButton { "A > B" };
+
+    // -- help / interface options --------------------------------------------
+    juce::TextEditor helpText;
+    juce::TextButton helpClose { "CLOSE HELP" };
+    bool tooltipsEnabled = true;
 
     // -- macros ---------------------------------------------------------------
     std::unique_ptr<MacroControls> macros;
@@ -125,7 +132,7 @@ private:
     juce::Rectangle<int> headerArea, displayTabArea, panelTabArea, panelContentArea,
                          footerArea, macroArea;
 
-    juce::TooltipWindow tooltips { this, 650 };
+    std::unique_ptr<juce::TooltipWindow> tooltips;
 
     int refreshCounter = 0;
     EngineSettings lastSettings;
