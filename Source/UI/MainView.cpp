@@ -25,6 +25,8 @@ enum PresetMenuId
     idLoadPreset,
     idOpenFolder,
     idInitialise,
+    idToggleTooltips,
+    idHelp,
     idFactoryBase = 1000,
     idUserBase    = 2000,
 };
@@ -103,6 +105,79 @@ MainView::MainView (SideForgeProcessor& processorToUse, juce::AudioProcessorEdit
     addAndMakeVisible (reductionMeter);
 
     buildPanels();
+
+    helpText.setMultiLine (true);
+    helpText.setReadOnly (true);
+    helpText.setScrollbarsShown (true);
+    helpText.setCaretVisible (false);
+    helpText.setColour (juce::TextEditor::backgroundColourId, theme::panel);
+    helpText.setColour (juce::TextEditor::textColourId, theme::text);
+    helpText.setColour (juce::TextEditor::outlineColourId, theme::accent);
+    helpText.setText (
+        "SIDEFORGE HELP\n\n"
+        "GETTING STARTED\n"
+        "1. Route the signal you want to control into SideForge and, when using an external detector, route the key signal to the sidechain input.\n"
+        "2. Choose Full Range or Band Matrix routing, then choose the processing mode.\n"
+        "3. Use the lower tabs for compressor, trigger, curve, spectrum, band, routing and output detail.\n"
+        "4. Use the four macro controls for broad Brightness, Movement, Grit and Space changes.\n\n"
+        "DISPLAY\n"
+        "Waveform shows the time-domain result. Curve edits the drawn gain shape and supports Undo/Redo. Spectrum shows spectral activity and Delta shows what is being removed. Matrix exposes per-band activity and selection. Freeze only freezes the display; it never freezes audio.\n\n"
+        "SIDECHAIN AND TRIGGERING\n"
+        "External mode listens to the host sidechain input. Internal mode keys from the track itself. If the footer says the sidechain is not connected or has no signal, check the host routing before changing thresholds.\n\n"
+        "PRESETS AND A/B\n"
+        "Presets opens factory presets plus save/load. A and B hold complete comparison states. A > B copies the current slot into the other slot before you make a comparison change.\n\n"
+        "CONTROL SHORTCUTS\n"
+        "Right-click parameter controls for MIDI learn, host automation actions, reset, value entry, copy and paste where available. Curve editing also supports the Undo and Redo buttons.\n\n"
+        "METERS AND OUTPUT\n"
+        "IN is the source level, SC is detector/sidechain level, GR is gain reduction and OUT is processed output. The footer also reports sidechain state and current processing latency.\n\n"
+        "TOOLTIPS\n"
+        "Hover controls for contextual help. Presets > Options > Show tooltips turns all hover tips on or off for this editor session.\n\n"
+        "TROUBLESHOOTING\n"
+        "If Spectral or Hybrid cannot be selected, switch to Studio quality or higher. If there is no reduction, confirm detector routing and signal first, then threshold/trigger settings. If timing sounds late, check the latency shown in the footer and confirm the host has plugin delay compensation enabled.\n");
+    helpText.setVisible (false);
+    addChildComponent (helpText);
+
+    helpClose.setTooltip ("Close the SideForge help section.");
+    helpClose.onClick = [this]
+    {
+        helpText.setVisible (false);
+        helpClose.setVisible (false);
+    };
+    helpClose.setVisible (false);
+    addChildComponent (helpClose);
+
+    applyTooltipSetting();
+
+    // Fill any remaining standard JUCE controls with a safe fallback tooltip.
+    // Most SideForge controls already provide specific help text in their widget
+    // constructors; this catches utility buttons added later.
+    std::function<void(juce::Component&)> fillMissingTips;
+    fillMissingTips = [&fillMissingTips] (juce::Component& root)
+    {
+        for (int i = 0; i < root.getNumChildComponents(); ++i)
+        {
+            auto* child = root.getChildComponent (i);
+            if (child == nullptr)
+                continue;
+
+            if (auto* tt = dynamic_cast<juce::SettableTooltipClient*> (child))
+            {
+                if (tt->getTooltip().isEmpty())
+                {
+                    juce::String label = child->getName();
+                    if (auto* button = dynamic_cast<juce::Button*> (child))
+                        label = button->getButtonText();
+                    if (label.isEmpty())
+                        label = "SideForge control";
+                    tt->setTooltip ("Use " + label + " to adjust this part of SideForge.");
+                }
+            }
+
+            fillMissingTips (*child);
+        }
+    };
+    fillMissingTips (*this);
+
     setActivePanel (juce::jlimit (0, (int) panels.size() - 1, processor.getEditorState().openPanel));
 
     startTimerHz (45);
@@ -282,6 +357,11 @@ void MainView::showPresetMenu()
     menu.addItem (idOpenFolder, "Open preset folder");
     menu.addSeparator();
     menu.addItem (idInitialise, "Initialise (reset everything)");
+    menu.addSeparator();
+    juce::PopupMenu optionsMenu;
+    optionsMenu.addItem (idToggleTooltips, "Show tooltips", true, tooltipsEnabled);
+    menu.addSubMenu ("Options", optionsMenu);
+    menu.addItem (idHelp, "Help...");
 
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&presetButton),
                         [this, userFiles] (int result)
@@ -309,6 +389,15 @@ void MainView::showPresetMenu()
                 case idLoadPreset: loadPresetFromFile(); break;
                 case idOpenFolder: getUserPresetDirectory().revealToUser(); break;
 
+                case idToggleTooltips:
+                    tooltipsEnabled = ! tooltipsEnabled;
+                    applyTooltipSetting();
+                    break;
+
+                case idHelp:
+                    showHelp();
+                    break;
+
                 case idInitialise:
                     for (auto* parameter : processor.getAPVTS().processor.getParameters())
                         if (auto* withID = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameter))
@@ -325,6 +414,28 @@ void MainView::showPresetMenu()
         refreshRelevance();
         repaint();
     });
+}
+
+void MainView::showHelp()
+{
+    helpText.setVisible (true);
+    helpClose.setVisible (true);
+    resized();
+    helpText.toFront (false);
+    helpClose.toFront (false);
+}
+
+void MainView::applyTooltipSetting()
+{
+    if (tooltipsEnabled)
+    {
+        if (tooltips == nullptr)
+            tooltips = std::make_unique<juce::TooltipWindow> (this, 650);
+    }
+    else
+    {
+        tooltips.reset();
+    }
 }
 
 void MainView::savePresetToFile()
@@ -540,6 +651,16 @@ void MainView::resized()
     layoutPanels (panelArea.reduced (theme::gap, 0));
 
     layoutDisplay (area.reduced (theme::gap, theme::gapSmall));
+
+    if (helpText.isVisible())
+    {
+        auto helpBounds = getLocalBounds().reduced (60, 46);
+        auto closeRow = helpBounds.removeFromBottom (38);
+        helpClose.setBounds (closeRow.withSizeKeepingCentre (120, 30));
+        helpText.setBounds (helpBounds);
+        helpText.toFront (false);
+        helpClose.toFront (false);
+    }
 }
 
 void MainView::layoutHeader (juce::Rectangle<int> area)
