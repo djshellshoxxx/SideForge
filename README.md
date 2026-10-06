@@ -738,3 +738,8 @@ SideForge is built on [JUCE](https://juce.com), which is dual-licensed under the
 JUCE licence and the AGPLv3. Using it under the AGPLv3 means this project is
 AGPLv3 as well; using it commercially needs a JUCE licence from Raw Material
 Software. No other third-party code is included.
+
+
+## Required shared plug-in standard
+
+This project follows the [Circuit Drift Labs Shared Audio Plugin Standard](docs/standards/CDL_PLUGIN_BASELINE.md). It is required for the plug-in target; standalone-only requirements apply only when a standalone target is included. The product-specific specification supplements the shared standard and records the applicable profiles, compliance status, and any exceptions.
