@@ -1,0 +1,61 @@
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'claude/**']
+
+env:
+  JUCE_TAG: 8.0.15
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch JUCE and clap-juce-extensions
+        shell: bash
+        run: |
+          git clone --branch $JUCE_TAG --depth 1 https://github.com/juce-framework/JUCE.git JUCE
+          git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/free-audio/clap-juce-extensions.git clap-ext
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DSIDEFORGE_CLAP_EXTENSIONS_DIR=${{ github.workspace }}/clap-ext
+      - name: Build plugin formats and tests
+        run: cmake --build build --config Release --target SideForge_VST3 SideForge_Standalone SideForge_CLAP SideForgeTests --parallel
+      - name: Unit tests
+        run: .\build\SideForgeTests_artefacts\Release\SideForgeTests.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SideForge-windows-x64
+          path: |
+            build/SideForge_artefacts/Release/VST3/SideForge.vst3
+            build/SideForge_artefacts/Release/CLAP/SideForge.clap
+            build/SideForge_artefacts/Release/Standalone/SideForge.exe
+
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build xvfb libasound2-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev
+      - name: Fetch JUCE and clap-juce-extensions
+        run: |
+          git clone --branch $JUCE_TAG --depth 1 https://github.com/juce-framework/JUCE.git JUCE
+          git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/free-audio/clap-juce-extensions.git clap-ext
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSIDEFORGE_CLAP_EXTENSIONS_DIR=$PWD/clap-ext
+      - name: Build
+        run: cmake --build build --target SideForge_VST3 SideForge_Standalone SideForge_CLAP SideForgeTests SideForgeValidate
+      - name: Unit tests and VST3 validation
+        run: |
+          xvfb-run -a build/SideForgeTests_artefacts/Release/SideForgeTests
+          xvfb-run -a build/SideForgeValidate_artefacts/Release/SideForgeValidate build/SideForge_artefacts/Release/VST3/SideForge.vst3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SideForge-linux-x64
+          path: |
+            build/SideForge_artefacts/Release/VST3/SideForge.vst3
+            build/SideForge_artefacts/Release/CLAP/SideForge.clap
+            build/SideForge_artefacts/Release/Standalone/SideForge
