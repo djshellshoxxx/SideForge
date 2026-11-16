@@ -5,11 +5,13 @@ project(SideForge VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(NOT WIN32)
-    message(FATAL_ERROR "SideForge targets Windows x64 only.")
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+# CLAP is built through clap-juce-extensions. Point this at a checkout (with its
+# submodules) to add the CLAP format; leave it empty for VST3 + Standalone only.
+set(SIDEFORGE_CLAP_EXTENSIONS_DIR "" CACHE PATH "Path to a clap-juce-extensions checkout")
 
 # Link-time optimisation buys a few percent on this code but costs roughly a
 # quarter of an hour per link, which is too slow to iterate against. It is off by
@@ -18,6 +20,10 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 option(SIDEFORGE_ENABLE_LTO "Enable link-time optimisation for Release builds" OFF)
 
 add_subdirectory(JUCE)
+
+if(SIDEFORGE_CLAP_EXTENSIONS_DIR)
+    add_subdirectory(${SIDEFORGE_CLAP_EXTENSIONS_DIR} clap-juce-extensions EXCLUDE_FROM_ALL)
+endif()
 
 # ---------------------------------------------------------------------------
 # Core sources: DSP + model + parameters + utilities.
@@ -100,6 +106,12 @@ target_link_libraries(SideForge
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
+
+if(SIDEFORGE_CLAP_EXTENSIONS_DIR)
+    clap_juce_extensions_plugin(TARGET SideForge
+        CLAP_ID "com.sideforge.sideforge"
+        CLAP_FEATURES audio-effect dynamics-processor)
+endif()
 
 if(SIDEFORGE_ENABLE_LTO)
     target_link_libraries(SideForge PUBLIC juce::juce_recommended_lto_flags)

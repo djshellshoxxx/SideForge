@@ -14,3 +14,5 @@ Resources/screenshots/*.png
 !Resources/screenshots/spectrum.png
 !Resources/screenshots/bands.png
 !Resources/screenshots/bandmatrix.png
+build-*/
+dist/
